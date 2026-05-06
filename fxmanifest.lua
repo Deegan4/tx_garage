@@ -38,6 +38,7 @@ files {
     'nui/style.css',
     'nui/script.js',
     'nui/assets/*.svg',
+    'nui/assets/fonts/*.woff2',
 }
 
 dependencies {
