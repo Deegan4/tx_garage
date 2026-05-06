@@ -1,0 +1,227 @@
+/* tx_garage — Vice City neon aesthetic, modern and clean */
+
+:root {
+    --bg-0: #0a0512;
+    --bg-1: #15092a;
+    --bg-2: #1f0d3a;
+    --pink: #ff2d6b;
+    --cyan: #00f0ff;
+    --green: #00ffa3;
+    --yellow: #ffd60a;
+    --text: #f4eaff;
+    --text-dim: #a399c9;
+    --border: rgba(255, 45, 107, 0.3);
+    --shadow-pink: 0 0 24px rgba(255, 45, 107, 0.4);
+    --shadow-cyan: 0 0 18px rgba(0, 240, 255, 0.35);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+    width: 100vw; height: 100vh;
+    overflow: hidden;
+    font-family: 'Outfit', system-ui, sans-serif;
+    color: var(--text);
+    background: transparent;
+    user-select: none;
+}
+
+#app { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+#app.hidden { display: none; }
+
+.view {
+    width: min(1100px, 92vw);
+    max-height: 86vh;
+    background: linear-gradient(160deg, var(--bg-1) 0%, var(--bg-0) 100%);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    box-shadow: var(--shadow-pink), 0 30px 80px rgba(0,0,0,0.6);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.view.hidden { display: none; }
+
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 22px 28px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(90deg, rgba(255,45,107,0.08) 0%, transparent 60%);
+}
+
+.title { display: flex; align-items: center; gap: 14px; }
+.title h1 { font-family: 'Bebas Neue', sans-serif; font-size: 32px; letter-spacing: 2px; }
+
+.badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    background: var(--pink);
+    color: var(--bg-0);
+    font-weight: 600;
+    box-shadow: 0 0 12px rgba(255,45,107,0.5);
+}
+.badge.auction { background: var(--yellow); }
+
+.close-btn {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    background: rgba(255,45,107,0.1);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.close-btn:hover { background: var(--pink); color: var(--bg-0); }
+
+.actions {
+    display: flex;
+    gap: 12px;
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--border);
+}
+
+.btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 10px;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.btn .icon { font-size: 16px; }
+.btn.primary {
+    background: linear-gradient(135deg, var(--pink), #b91c5b);
+    color: white;
+    box-shadow: var(--shadow-pink);
+}
+.btn.primary:hover { transform: translateY(-1px); filter: brightness(1.1); }
+.btn.secondary {
+    background: rgba(0, 240, 255, 0.1);
+    border: 1px solid rgba(0, 240, 255, 0.4);
+    color: var(--cyan);
+}
+.btn.secondary:hover { background: rgba(0, 240, 255, 0.2); box-shadow: var(--shadow-cyan); }
+
+.vehicle-grid, .auction-grid {
+    padding: 22px 28px 28px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.vehicle-card, .auction-card {
+    background: linear-gradient(160deg, var(--bg-2) 0%, var(--bg-1) 100%);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    transition: all 0.15s ease;
+}
+.vehicle-card:hover, .auction-card:hover {
+    border-color: var(--pink);
+    box-shadow: 0 0 18px rgba(255,45,107,0.25);
+    transform: translateY(-2px);
+}
+
+.vehicle-card .model {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 1.5px;
+    color: var(--cyan);
+    margin-bottom: 4px;
+}
+.vehicle-card .plate {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 14px;
+    letter-spacing: 1px;
+}
+
+.stats { display: flex; gap: 8px; margin-bottom: 14px; }
+.stat {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+    padding: 8px;
+    text-align: center;
+}
+.stat .value {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--green);
+}
+.stat .label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 2px;
+}
+
+.card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.card-actions .btn {
+    flex: 1;
+    padding: 8px 10px;
+    font-size: 12px;
+    min-width: 0;
+}
+
+/* Auction-specific */
+.auction-card .price-row { display: flex; justify-content: space-between; margin-bottom: 12px; }
+.auction-card .current-bid {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    color: var(--yellow);
+    line-height: 1;
+}
+.auction-card .ends-in {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--pink);
+    background: rgba(255,45,107,0.1);
+    padding: 4px 8px;
+    border-radius: 6px;
+    align-self: flex-start;
+}
+.bid-row { display: flex; gap: 6px; margin-top: 10px; }
+.bid-row input {
+    flex: 1;
+    padding: 8px 12px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+}
+.bid-row input:focus { outline: none; border-color: var(--cyan); box-shadow: var(--shadow-cyan); }
+
+.empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    padding: 40px;
+}
+.empty-state.hidden { display: none; }
+.empty-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--pink); }

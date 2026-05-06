@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>tx_garage</title>
+    <link rel="stylesheet" href="style.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app" class="hidden">
+        <!-- Garage view -->
+        <div id="garage-view" class="view hidden">
+            <div class="header">
+                <div class="title">
+                    <span class="badge" id="garage-type">PUBLIC</span>
+                    <h1 id="garage-label">Garage</h1>
+                </div>
+                <button class="close-btn" data-action="close">✕</button>
+            </div>
+
+            <div class="actions">
+                <button class="btn primary" id="btn-store">
+                    <span class="icon">⬇</span> Store Current Vehicle
+                </button>
+                <button class="btn secondary" id="btn-valet">
+                    <span class="icon">🛎</span> Call Valet
+                </button>
+            </div>
+
+            <div class="vehicle-grid" id="vehicle-grid">
+                <!-- vehicle cards injected here -->
+            </div>
+
+            <div class="empty-state hidden" id="empty-state">
+                <div class="empty-icon">🚗</div>
+                <p>No vehicles stored here.</p>
+            </div>
+        </div>
+
+        <!-- Auction view -->
+        <div id="auction-view" class="view hidden">
+            <div class="header">
+                <div class="title">
+                    <span class="badge auction">AUCTION</span>
+                    <h1>Impound Auction House</h1>
+                </div>
+                <button class="close-btn" data-action="close">✕</button>
+            </div>
+
+            <div class="auction-grid" id="auction-grid">
+                <!-- auction cards injected here -->
+            </div>
+
+            <div class="empty-state hidden" id="auction-empty">
+                <div class="empty-icon">🔨</div>
+                <p>No active auctions right now.</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
