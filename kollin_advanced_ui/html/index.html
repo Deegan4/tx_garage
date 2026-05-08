@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>kollin_advanced_ui</title>
+<link rel="stylesheet" href="css/animations.css"/>
+<link rel="stylesheet" href="css/themes.css"/>
+<link rel="stylesheet" href="css/style.css"/>
+</head>
+<body>
+
+<!-- ─── HUD: Status Bars ─────────────────────────────────────── -->
+<div id="hud-status" class="hud-status pos-bottom-left" aria-hidden="true">
+  <div class="bar-row" id="bar-health">
+    <span class="bar-icon health-icon">♥</span>
+    <div class="bar-track"><div class="bar-fill" id="fill-health"></div></div>
+    <span class="bar-val" id="val-health">100</span>
+  </div>
+  <div class="bar-row" id="bar-armor">
+    <span class="bar-icon armor-icon">🛡</span>
+    <div class="bar-track"><div class="bar-fill" id="fill-armor"></div></div>
+    <span class="bar-val" id="val-armor">0</span>
+  </div>
+  <div class="bar-row" id="bar-hunger">
+    <span class="bar-icon hunger-icon">🍗</span>
+    <div class="bar-track"><div class="bar-fill" id="fill-hunger"></div></div>
+    <span class="bar-val" id="val-hunger">100</span>
+  </div>
+  <div class="bar-row" id="bar-thirst">
+    <span class="bar-icon thirst-icon">💧</span>
+    <div class="bar-track"><div class="bar-fill" id="fill-thirst"></div></div>
+    <span class="bar-val" id="val-thirst">100</span>
+  </div>
+  <div class="bar-row" id="bar-stamina">
+    <span class="bar-icon stamina-icon">⚡</span>
+    <div class="bar-track"><div class="bar-fill" id="fill-stamina"></div></div>
+    <span class="bar-val" id="val-stamina">100</span>
+  </div>
+  <div class="bar-row hidden" id="bar-stress">
+    <span class="bar-icon stress-icon">😤</span>
+    <div class="bar-track"><div class="bar-fill" id="fill-stress"></div></div>
+    <span class="bar-val" id="val-stress">0</span>
+  </div>
+  <div class="bar-row hidden" id="bar-oxygen">
+    <span class="bar-icon oxygen-icon">🌊</span>
+    <div class="bar-track"><div class="bar-fill" id="fill-oxygen"></div></div>
+    <span class="bar-val" id="val-oxygen">100</span>
+  </div>
+
+  <!-- Money -->
+  <div id="hud-money" class="money-display">
+    <div class="money-row"><span class="money-icon">💵</span><span id="hud-cash">$0</span></div>
+    <div class="money-row"><span class="money-icon">🏦</span><span id="hud-bank">$0</span></div>
+  </div>
+</div>
+
+<!-- ─── HUD: Location & Time ─────────────────────────────────── -->
+<div id="hud-info" class="hud-info pos-top-right" aria-hidden="true">
+  <div id="hud-time" class="hud-time">00:00</div>
+  <div id="hud-street" class="hud-street"></div>
+  <div id="hud-zone"   class="hud-zone"></div>
+  <div id="hud-wanted" class="hud-wanted hidden">
+    <span>★</span><span id="wanted-stars">0</span>
+  </div>
+</div>
+
+<!-- ─── Speedometer ──────────────────────────────────────────── -->
+<div id="speedometer" class="speedo hidden pos-bottom-right" aria-hidden="true">
+  <div class="speedo-body">
+    <div class="speedo-speed-row">
+      <span class="speedo-value" id="speedo-speed">0</span>
+      <span class="speedo-unit"  id="speedo-unit">MPH</span>
+    </div>
+    <div class="speedo-rpm-row">
+      <div class="rpm-track">
+        <div class="rpm-fill" id="speedo-rpm"></div>
+      </div>
+      <span class="rpm-label">RPM</span>
+    </div>
+    <div class="speedo-row">
+      <div class="speedo-gear-box">
+        <span class="gear-label">GEAR</span>
+        <span class="gear-val" id="speedo-gear">N</span>
+      </div>
+      <div class="speedo-fuel-box">
+        <span class="fuel-icon">⛽</span>
+        <div class="fuel-track"><div class="fuel-fill" id="speedo-fuel"></div></div>
+      </div>
+      <div class="speedo-belt" id="speedo-seatbelt" title="Seatbelt">🔓</div>
+    </div>
+    <div class="speedo-dmg-row">
+      <div class="dmg-item" title="Engine">
+        <span>🔧</span>
+        <div class="dmg-track"><div class="dmg-fill engine-fill" id="speedo-engine"></div></div>
+      </div>
+      <div class="dmg-item" title="Body">
+        <span>🚗</span>
+        <div class="dmg-track"><div class="dmg-fill body-fill" id="speedo-body"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Notifications ────────────────────────────────────────── -->
+<div id="notif-container" class="notif-container pos-top-right" aria-live="polite"></div>
+
+<!-- ─── Progress Bar ─────────────────────────────────────────── -->
+<div id="progress-overlay" class="progress-overlay hidden" aria-live="assertive">
+  <div class="progress-box">
+    <div class="progress-label" id="progress-label"></div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progress-fill"></div>
+    </div>
+    <div class="progress-hint" id="progress-hint"></div>
+  </div>
+</div>
+
+<!-- ─── Context Menu ─────────────────────────────────────────── -->
+<div id="context-overlay" class="context-overlay hidden" aria-modal="true">
+  <div class="context-box" id="context-box">
+    <div class="context-title" id="context-title"></div>
+    <div class="context-list" id="context-list"></div>
+  </div>
+</div>
+
+<!-- ─── Main Menu ────────────────────────────────────────────── -->
+<div id="menu-overlay" class="menu-overlay hidden" aria-modal="true">
+  <div class="menu-panel" id="menu-panel">
+    <!-- Sidebar tabs -->
+    <nav class="menu-nav" id="menu-nav">
+      <div class="menu-brand">
+        <div class="menu-brand-dot"></div>
+        <span class="menu-brand-name">UI</span>
+      </div>
+      <button class="menu-tab active" data-tab="player"   aria-label="Player">
+        <span class="tab-icon">👤</span><span class="tab-label">Player</span>
+      </button>
+      <button class="menu-tab" data-tab="vehicle"  aria-label="Vehicle">
+        <span class="tab-icon">🚗</span><span class="tab-label">Vehicle</span>
+      </button>
+      <button class="menu-tab" data-tab="emotes"   aria-label="Emotes">
+        <span class="tab-icon">💃</span><span class="tab-label">Emotes</span>
+      </button>
+      <button class="menu-tab" data-tab="settings" aria-label="Settings">
+        <span class="tab-icon">⚙️</span><span class="tab-label">Settings</span>
+      </button>
+      <button class="menu-tab hidden" data-tab="admin" aria-label="Admin" id="tab-admin">
+        <span class="tab-icon">🛡</span><span class="tab-label">Admin</span>
+      </button>
+      <button class="menu-close" id="menu-close-btn" aria-label="Close">✕</button>
+    </nav>
+
+    <!-- Content area -->
+    <div class="menu-content">
+
+      <!-- Player tab -->
+      <section class="menu-page active" id="page-player">
+        <h2 class="page-title">Player Info</h2>
+        <div class="info-grid" id="player-grid"></div>
+      </section>
+
+      <!-- Vehicle tab -->
+      <section class="menu-page" id="page-vehicle">
+        <h2 class="page-title">Vehicle</h2>
+        <div id="vehicle-content"></div>
+        <div class="vehicle-actions" id="vehicle-actions"></div>
+      </section>
+
+      <!-- Emotes tab -->
+      <section class="menu-page" id="page-emotes">
+        <h2 class="page-title">Emotes</h2>
+        <input class="emote-search" id="emote-search" type="text" placeholder="Search emotes..."/>
+        <div class="emote-grid" id="emote-grid"></div>
+      </section>
+
+      <!-- Settings tab -->
+      <section class="menu-page" id="page-settings">
+        <h2 class="page-title">Settings</h2>
+        <div class="settings-list" id="settings-content"></div>
+      </section>
+
+      <!-- Admin tab -->
+      <section class="menu-page" id="page-admin">
+        <h2 class="page-title">Admin</h2>
+        <div class="info-grid" id="admin-grid">
+          <p class="admin-note">Admin tools are available via server commands.</p>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<script src="js/app.js"></script>
+<script src="js/hud.js"></script>
+<script src="js/speedometer.js"></script>
+<script src="js/notifications.js"></script>
+<script src="js/progressbar.js"></script>
+<script src="js/context.js"></script>
+<script src="js/menu.js"></script>
+<script src="js/settings.js"></script>
+</body>
+</html>
