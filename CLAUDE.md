@@ -6,6 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `tx_garage` is a **FiveM resource** — a server-side mod for GTA V multiplayer (CitizenFX/FiveM). It is written in Lua (server + client) and vanilla JS/HTML/CSS (NUI). There is no build step, no package manager, and no test runner. Files are loaded directly by FiveM's cfx runtime in the order declared in `fxmanifest.lua`.
 
+## External docs
+
+When looking up a FiveM/CitizenFX native, fxmanifest field, or scripting runtime behavior, consult the official docs:
+
+- **FiveM documentation**: https://docs.fivem.net/docs/
+- **Native reference** (search by name, e.g. `GetVehicleNumberPlateText`): https://docs.fivem.net/natives/
+- **`fxmanifest.lua` reference**: https://docs.fivem.net/docs/scripting-reference/resource-manifest/resource-manifest/
+- **NUI development**: https://docs.fivem.net/docs/scripting-manual/nui-development/
+
+Prefer these over training-data recall — natives and runtime semantics change between FXServer artifacts.
+
 ## Development workflow
 
 **Reload the resource on a live FiveM server:**

@@ -1,10 +1,13 @@
 -- tx_garage — Valet client behavior
 -- When server tells us "valet delivered", spawn the vehicle near the player with a valet ped driving it.
 
-RegisterNUICallback('valet/request', function(data, cb)
+-- NOTE: NUI posts `garage/valet` with { garageName }. The server resolves the
+-- caller's most-recently-stored vehicle in that garage and dispatches the valet.
+-- We never accept a client-supplied plate here — server picks the vehicle.
+RegisterNUICallback('garage/valet', function(data, cb)
     local ped = PlayerPedId()
     local coords = GetEntityCoords(ped)
-    TriggerServerEvent('tx_garage:requestValet', data.plate, { x = coords.x, y = coords.y, z = coords.z })
+    TriggerServerEvent('tx_garage:requestValet', data.garageName, { x = coords.x, y = coords.y, z = coords.z })
     cb({ ok = true })
 end)
 

@@ -67,3 +67,20 @@ function Utils.genPlate()
     end
     return plate
 end
+
+---Per-source rate limiter. Caller owns `state` (a table keyed by src).
+---Returns true when the call should be REJECTED (still cooling down), false otherwise.
+---On success, stamps the time so the next call within `seconds` returns true.
+---@param state table  caller-owned table (e.g. local cooldowns = {})
+---@param src number   server source id
+---@param key string   action key (e.g. 'bid', 'retrieve')
+---@param seconds number  cooldown window in seconds
+---@return boolean rejected
+function Utils.isOnCooldown(state, src, key, seconds)
+    local now = os.time()
+    state[src] = state[src] or {}
+    local last = state[src][key]
+    if last and (now - last) < seconds then return true end
+    state[src][key] = now
+    return false
+end

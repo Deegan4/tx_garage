@@ -3,6 +3,9 @@
 
 local AUCTION_TICK_SECONDS = 60
 
+local auctionCooldowns = {}
+AddEventHandler('playerDropped', function() auctionCooldowns[source] = nil end)
+
 ---Look up a vehicle's value (used to compute starting bid).
 local function getVehicleValue(plate, model)
     local ok, result = pcall(function()
@@ -56,34 +59,18 @@ local function closeExpiredAuctions()
 
     for _, a in ipairs(expired or {}) do
         if a.leading_bidder then
-            -- Charge bidder (offline-safe)
-            local houseCut = math.floor(a.current_bid * Config.Auction.houseCutPercent)
-            local netToCity = a.current_bid - houseCut
-
-            local paid = Bridge.RemoveMoneyOffline(a.leading_bidder, 'bank', a.current_bid)
-            if paid then
-                -- Transfer ownership
-                local transferSql = (Config.Framework == 'esx')
-                    and "UPDATE player_vehicles SET owner=?, tx_garage_state='impound', tx_garage_impounded_at=NOW() WHERE plate=?"
-                    or  "UPDATE player_vehicles SET citizenid=?, tx_garage_state='impound', tx_garage_impounded_at=NOW() WHERE plate=?"
-                MySQL.update.await(transferSql, { a.leading_bidder, a.plate })
-                MySQL.update.await(
-                    "UPDATE tx_garage_auctions SET status = 'closed' WHERE id = ?",
-                    { a.id }
-                )
-                Utils.dbg('Auction closed:', a.plate, '→', a.leading_bidder, 'for', a.current_bid)
-            else
-                -- Bidder couldn't pay — forfeit and re-list
-                MySQL.update.await(
-                    "UPDATE tx_garage_auctions SET status = 'forfeited' WHERE id = ?",
-                    { a.id }
-                )
-                MySQL.update.await(
-                    "UPDATE player_vehicles SET tx_garage_state = 'impound' WHERE plate = ?",
-                    { a.plate }
-                )
-                Utils.dbg('Auction forfeited (bidder broke):', a.plate)
-            end
+            -- Bid was already debited at place-time (escrow model). At close we
+            -- just transfer ownership; the house cut is implicit (bidder paid full
+            -- amount, original owner gets nothing — that IS the impound penalty).
+            local transferSql = (Config.Framework == 'esx')
+                and "UPDATE player_vehicles SET owner=?, tx_garage_state='impound', tx_garage_impounded_at=NOW() WHERE plate=?"
+                or  "UPDATE player_vehicles SET citizenid=?, tx_garage_state='impound', tx_garage_impounded_at=NOW() WHERE plate=?"
+            MySQL.update.await(transferSql, { a.leading_bidder, a.plate })
+            MySQL.update.await(
+                "UPDATE tx_garage_auctions SET status = 'closed' WHERE id = ?",
+                { a.id }
+            )
+            Utils.dbg('Auction closed:', a.plate, '→', a.leading_bidder, 'for', a.current_bid)
         else
             -- No bids — return to impound, will re-promote later
             MySQL.update.await("UPDATE tx_garage_auctions SET status = 'closed' WHERE id = ?", { a.id })
@@ -111,7 +98,7 @@ end)
 
 RegisterNetEvent('tx_garage:placeBid', function(auctionId, amount)
     local src = source
-    if isOnCooldown(src, 'bid', 2) then return end
+    if Utils.isOnCooldown(auctionCooldowns, src, 'bid', 2) then return end
 
     local p = Bridge.GetPlayer(src)
     if not p then return end
@@ -130,17 +117,25 @@ RegisterNetEvent('tx_garage:placeBid', function(auctionId, amount)
         return
     end
 
-    -- Verify funds (live check, but we DO NOT debit yet — only on auction close)
-    local money = (Config.Framework == 'esx')
-        and p.getAccount('bank').money
-        or p.PlayerData.money.bank
-    if money < amount then
+    local id = Bridge.GetIdentifier(p)
+    local previousBidder = row[1].leading_bidder
+    local previousBid = tonumber(row[1].current_bid) or 0
+
+    -- BID ESCROW: debit the new bidder NOW. If they win, money is already gone.
+    -- If they're outbid, refund happens below. If they go offline before close,
+    -- their bid still stands because we already have their money.
+    if not Bridge.RemoveMoney(src, 'bank', amount) then
         Bridge.Notify(src, Locale('auction.no_money'), 'error')
         return
     end
 
-    local id = Bridge.GetIdentifier(p)
-    local previousBidder = row[1].leading_bidder
+    -- Refund the previous bidder (if any), INCLUDING the same player raising their own bid.
+    -- Without this, a self-rebid pays previousBid + newBid for a newBid auction.
+    -- previousBidder is an identifier string; use offline-safe path so we work
+    -- whether they are online or not.
+    if previousBidder and previousBid > 0 then
+        Bridge.AddMoneyOffline(previousBidder, 'bank', previousBid)
+    end
 
     MySQL.update.await([[
         UPDATE tx_garage_auctions SET current_bid = ?, leading_bidder = ? WHERE id = ?

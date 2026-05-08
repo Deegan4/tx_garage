@@ -19,7 +19,7 @@ Locales.es = {
     ['valet.arrived']          = 'Tu valet ha llegado.',
     ['valet.cancelled']        = 'Valet cancelado. Reembolso %s.',
     ['valet.cooldown']         = 'Podrás llamar otro valet en %ds.',
-    ['valet.too_far']          = 'Estás demasiado lejos de cualquier garaje.',
+    ['valet.too_far']          = 'Debes estar a menos de %dm de un garaje para llamar a un valet.',
     ['valet.not_enough_money'] = 'No puedes pagar el valet (costo: %s).',
 
     -- Impound / Auction

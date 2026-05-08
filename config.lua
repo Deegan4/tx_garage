@@ -106,8 +106,8 @@ Config.Auction = {
     auctionBlip    = { sprite = 524, color = 5, scale = 0.8 },
     -- Vehicle value resolution: oxmysql players_vehicles.value, fallback to QB shared pricing, fallback to flat
     fallbackValue  = 25000,
-    -- Auctioneer takes a cut (% of winning bid) — this is your "house" sink
-    houseCutPercent = 0.05,
+    -- Note: the auction is its own economy sink — winning bidder pays full amount,
+    -- original (impounded) owner gets nothing. No separate house cut needed.
     -- How long winning bidder has to retrieve vehicle before forfeit
     retrieveWindowHours = 48,
 }

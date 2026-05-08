@@ -52,5 +52,6 @@ escrow_ignore {
     'locales/*.lua',
     'README.md',
     'INSTALL.sql',
+    'LICENSE',
     'shared/utils.lua',
 }

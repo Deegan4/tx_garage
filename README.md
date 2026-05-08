@@ -79,10 +79,10 @@ Players call a valet from their phone or via target zone. An NPC drives the play
 
 Vehicles unclaimed past your configured grace period (default 7 days) auto-promote to a public auction lot. Players bid live via NUI with min-increment validation.
 
-- House cut on every winning bid (default 5%) — drains money from your economy
-- Offline-safe: winners are debited at auction close even if disconnected
-- Forfeit logic if winner can't cover the bid
-- Drives roleplay: police impounds matter, players hunt deals
+- Bid escrow: bidder's bank is debited when they bid, refunded if outbid (no fake-bid griefing)
+- Offline-safe refunds work whether the previous bidder is online or not
+- Winning bidder pays in full at bid time → cleared at auction close → vehicle is yours
+- Drives roleplay: police impounds matter, players hunt deals, money leaves circulation
 
 <br clear="left">
 
@@ -119,8 +119,8 @@ Neon gradients, smooth animations, mobile-aware layout. Designed to feel like a 
 **Impound auction** *(unique to tx_garage)*
 - Auto-promotion of overdue impounds to live auction lot
 - Live NUI bidding with countdown + min-increment validation
-- House cut % on every win (configurable economy sink)
-- Offline-safe payment + forfeit handling
+- Bid escrow: debit on bid, refund-on-outbid (offline-safe via direct SQL)
+- No double-charge or unpaid-winner edge cases — money is locked at bid time
 - Auction tick configurable (default 60s)
 
 **Police integration**
@@ -149,6 +149,13 @@ Neon gradients, smooth animations, mobile-aware layout. Designed to feel like a 
 | [`ox_target`](https://github.com/overextended/ox_target) | Zone-based interaction (recommended) |
 | [`ox_fuel`](https://github.com/overextended/ox_fuel) / `LegacyFuel` | Fuel persistence |
 | [`qbx_vehiclekeys`](https://github.com/Qbox-project/qbx_vehiclekeys) / `qb-vehiclekeys` | Auto-key handoff on retrieve |
+
+### Reference docs
+
+For server setup, native reference, and FiveM-specific debugging:
+- [FiveM documentation](https://docs.fivem.net/docs/)
+- [Native reference](https://docs.fivem.net/natives/) — search natives by name
+- [`fxmanifest.lua` reference](https://docs.fivem.net/docs/scripting-reference/resource-manifest/resource-manifest/)
 
 ---
 

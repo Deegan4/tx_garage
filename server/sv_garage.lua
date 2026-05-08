@@ -3,11 +3,7 @@
 local cooldowns = {}
 
 local function isOnCooldown(src, key, seconds)
-    local now = os.time()
-    cooldowns[src] = cooldowns[src] or {}
-    if cooldowns[src][key] and now - cooldowns[src][key] < seconds then return true end
-    cooldowns[src][key] = now
-    return false
+    return Utils.isOnCooldown(cooldowns, src, key, seconds)
 end
 
 AddEventHandler('playerDropped', function() cooldowns[source] = nil end)
@@ -193,18 +189,68 @@ RegisterNetEvent('tx_garage:transferVehicle', function(plate, targetServerId)
     Bridge.Notify(src, Locale('success.vehicle_stored'), 'success')
 end)
 
--- Police-only impound (drops a vehicle into impound from anywhere)
-RegisterNetEvent('tx_garage:policeImpound', function(plate)
+-- Police-only impound (drops a vehicle into impound).
+--
+-- Security model: the caller MUST be a job-matched, grade-qualified player
+-- physically near the vehicle they are impounding. The vehicleNetId proves
+-- the vehicle exists in the world (it has a network entity); we read its
+-- plate server-side rather than trusting the client. The cop's server-tracked
+-- ped coords are compared against the vehicle's coords (Config.PoliceImpound.radius).
+--
+-- Calling resources (tow-truck scripts, /impound commands) should pass the
+-- vehicle's NetworkGetNetworkIdFromEntity(veh) as `vehicleNetId`.
+RegisterNetEvent('tx_garage:policeImpound', function(vehicleNetId)
     local src = source
     if isOnCooldown(src, 'policeImpound', 3) then return end
 
     local p = Bridge.GetPlayer(src)
     if not p then return end
+
+    -- 1. Job + grade gate
     if not Bridge.HasJob(p, Config.PoliceImpound.jobs) then
         Bridge.Notify(src, Locale('error.no_permission'), 'error')
         return
     end
+    if Bridge.GetJobGrade(p) < (Config.PoliceImpound.minGrade or 0) then
+        Bridge.Notify(src, Locale('error.no_permission'), 'error')
+        return
+    end
 
+    -- 2. Resolve the vehicle entity from its network ID
+    if type(vehicleNetId) ~= 'number' or vehicleNetId <= 0 then return end
+    local veh = NetworkGetEntityFromNetworkId(vehicleNetId)
+    if not veh or veh == 0 or not DoesEntityExist(veh) then
+        Bridge.Notify(src, Locale('error.not_owner'), 'error')
+        return
+    end
+
+    -- 3. Read plate from the actual entity (not from client)
+    local plate = GetVehicleNumberPlateText(veh)
+    if not plate then return end
+    plate = plate:gsub('%s+$', '')  -- vehicle plates are right-padded with spaces
+
+    -- 4. Validate plate is in player_vehicles (no impounding NPC/spawned vehicles)
+    local known = MySQL.scalar.await(
+        'SELECT 1 FROM player_vehicles WHERE plate = ? LIMIT 1', { plate }
+    )
+    if not known then
+        Bridge.Notify(src, Locale('error.not_owner'), 'error')
+        return
+    end
+
+    -- 5. Proximity gate: cop's ped must be within radius of the vehicle
+    local copPed = GetPlayerPed(src)
+    if not copPed or copPed == 0 then return end
+    local cx, cy, cz = table.unpack(GetEntityCoords(copPed))
+    local vx, vy, vz = table.unpack(GetEntityCoords(veh))
+    local dx, dy, dz = cx - vx, cy - vy, cz - vz
+    local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if distance > (Config.PoliceImpound.radius or 5.0) then
+        Bridge.Notify(src, Locale('error.no_permission'), 'error')
+        return
+    end
+
+    -- 6. All checks passed — impound
     MySQL.update.await([[
         UPDATE player_vehicles
         SET tx_garage_state = 'impound', tx_garage_impounded_at = NOW(), tx_garage_name = 'mrpd_impound'

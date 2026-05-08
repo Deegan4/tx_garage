@@ -50,6 +50,19 @@ function Bridge.GetJob(player)
 end
 
 ---@param player table
+---@return number  job grade level (0 if unknown)
+function Bridge.GetJobGrade(player)
+    if not player then return 0 end
+    if Config.Framework == 'qbcore' or Config.Framework == 'qbox' then
+        local g = player.PlayerData and player.PlayerData.job and player.PlayerData.job.grade
+        return tonumber(g and g.level) or 0
+    elseif Config.Framework == 'esx' then
+        return tonumber(player.job and player.job.grade) or 0
+    end
+    return 0
+end
+
+---@param player table
 ---@return string|nil gang_name (qb only)
 function Bridge.GetGang(player)
     if Config.Framework == 'qbcore' or Config.Framework == 'qbox' then
