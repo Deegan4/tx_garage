@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <rect width="1280" height="720" fill="#0a0014"/>
+  <rect x="40" y="40" width="500" height="640" rx="20" fill="#1a0833" stroke="#00f0ff" stroke-width="2"/>
+  <text x="290" y="100" font-family="Helvetica,Arial,sans-serif" font-weight="700" font-size="32" fill="#00f0ff" text-anchor="middle">LIVE AUCTION</text>
+  <text x="290" y="160" font-family="Helvetica,Arial,sans-serif" font-size="20" fill="#fff" text-anchor="middle">2018 Karin Sultan RS</text>
+  <text x="290" y="200" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#666" text-anchor="middle">Plate: ABC-1234</text>
+  <text x="290" y="280" font-family="Helvetica,Arial,sans-serif" font-weight="700" font-size="48" fill="#fff" text-anchor="middle">$12,400</text>
+  <text x="290" y="310" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#666" text-anchor="middle">CURRENT BID</text>
+  <text x="290" y="370" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#ff2d6b" text-anchor="middle">⏱  04:23:18</text>
+  <rect x="100" y="420" width="380" height="60" rx="10" fill="#00f0ff"/>
+  <text x="290" y="460" font-family="Helvetica,Arial,sans-serif" font-weight="700" font-size="22" fill="#0a0014" text-anchor="middle">BID +$500</text>
+  <text x="290" y="540" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#444" text-anchor="middle">Leading: cit_4f2d8a · 7 bids</text>
+  <text x="640" y="380" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#444" text-anchor="middle">[ feature-auction.png placeholder ]</text>
+  <text x="640" y="420" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#333" text-anchor="middle">Capture the actual NUI in-game and replace</text>
+</svg>

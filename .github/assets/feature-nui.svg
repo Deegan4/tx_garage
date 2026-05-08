@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <rect width="1280" height="720" fill="#0a0014"/>
+  <rect x="80" y="60" width="1120" height="600" rx="20" fill="#1a0833" stroke="#a347ff" stroke-width="2"/>
+  <text x="640" y="120" font-family="Helvetica,Arial,sans-serif" font-weight="700" font-size="32" fill="#a347ff" text-anchor="middle">LEGION SQUARE GARAGE</text>
+  <text x="640" y="160" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#666" text-anchor="middle">3 vehicles stored</text>
+  <g>
+    <rect x="120" y="200" width="320" height="120" rx="12" fill="#231043"/>
+    <text x="280" y="240" font-family="Helvetica,Arial,sans-serif" font-weight="700" font-size="20" fill="#fff" text-anchor="middle">Sultan RS</text>
+    <text x="280" y="270" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#888" text-anchor="middle">ABC-1234</text>
+    <rect x="160" y="290" width="240" height="6" rx="3" fill="#333"/>
+    <rect x="160" y="290" width="200" height="6" rx="3" fill="#00ffa3"/>
+  </g>
+  <g>
+    <rect x="480" y="200" width="320" height="120" rx="12" fill="#231043"/>
+    <text x="640" y="240" font-family="Helvetica,Arial,sans-serif" font-weight="700" font-size="20" fill="#fff" text-anchor="middle">Adder</text>
+    <text x="640" y="270" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#888" text-anchor="middle">XYZ-9876</text>
+    <rect x="520" y="290" width="240" height="6" rx="3" fill="#333"/>
+    <rect x="520" y="290" width="180" height="6" rx="3" fill="#ffaa00"/>
+  </g>
+  <g>
+    <rect x="840" y="200" width="320" height="120" rx="12" fill="#231043"/>
+    <text x="1000" y="240" font-family="Helvetica,Arial,sans-serif" font-weight="700" font-size="20" fill="#fff" text-anchor="middle">Comet S2</text>
+    <text x="1000" y="270" font-family="Helvetica,Arial,sans-serif" font-size="12" fill="#888" text-anchor="middle">DEF-5555</text>
+    <rect x="880" y="290" width="240" height="6" rx="3" fill="#333"/>
+    <rect x="880" y="290" width="60" height="6" rx="3" fill="#ff2d6b"/>
+  </g>
+  <text x="640" y="500" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#444" text-anchor="middle">[ feature-nui.png placeholder ]</text>
+  <text x="640" y="540" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#333" text-anchor="middle">Capture the actual NUI in-game and replace</text>
+</svg>

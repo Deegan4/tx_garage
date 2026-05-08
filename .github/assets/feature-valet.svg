@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720">
+  <rect width="1280" height="720" fill="#0a0014"/>
+  <rect x="40" y="40" width="500" height="640" rx="20" fill="#1a0833" stroke="#ff2d6b" stroke-width="2"/>
+  <text x="290" y="100" font-family="Helvetica,Arial,sans-serif" font-weight="700" font-size="32" fill="#ff2d6b" text-anchor="middle">VALET SERVICE</text>
+  <text x="290" y="180" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#999" text-anchor="middle">ETA: 90 seconds</text>
+  <text x="290" y="220" font-family="Helvetica,Arial,sans-serif" font-size="18" fill="#999" text-anchor="middle">Cost: $250</text>
+  <rect x="100" y="280" width="380" height="60" rx="10" fill="#ff2d6b"/>
+  <text x="290" y="320" font-family="Helvetica,Arial,sans-serif" font-weight="700" font-size="22" fill="#fff" text-anchor="middle">CALL VALET</text>
+  <rect x="100" y="360" width="380" height="60" rx="10" fill="transparent" stroke="#666" stroke-width="2"/>
+  <text x="290" y="400" font-family="Helvetica,Arial,sans-serif" font-weight="500" font-size="20" fill="#aaa" text-anchor="middle">CANCEL</text>
+  <text x="290" y="500" font-family="Helvetica,Arial,sans-serif" font-size="14" fill="#666" text-anchor="middle">Cooldown: 10 minutes</text>
+  <text x="640" y="380" font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#444" text-anchor="middle">[ feature-valet.png placeholder ]</text>
+  <text x="640" y="420" font-family="Helvetica,Arial,sans-serif" font-size="16" fill="#333" text-anchor="middle">Capture the actual NUI in-game and replace</text>
+</svg>
