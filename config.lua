@@ -119,8 +119,8 @@ Config.Storage = {
     saveOnExit          = true,    -- save vehicle damage/fuel/mods on store
     restoreOnSpawn      = true,    -- restore everything on spawn
     requireKey          = true,    -- only owners (or those given keys) can retrieve
-    fuelResource        = 'LegacyFuel',  -- 'LegacyFuel' | 'ox_fuel' | 'ps-fuel' | nil
-    keysResource        = nil,           -- nil = use framework default, or 'qb-vehiclekeys' / 'qs-vehiclekeys'
+    fuelResource        = 'ox_fuel',     -- 'LegacyFuel' | 'ox_fuel' | 'ps-fuel' | nil
+    keysResource        = 'qbx_vehiclekeys', -- nil = framework default, or 'qb-vehiclekeys' / 'qs-vehiclekeys' / 'qbx_vehiclekeys'
 }
 
 -- ─────────────────────────────────────────────────────────────────────
