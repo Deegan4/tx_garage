@@ -1,0 +1,24 @@
+# Forbidden NUI APIs — used by .claude/agents/nui-security-reviewer.md
+# Format: one regex-friendly token per line, grouped by section.
+# Comments start with #.
+
+[dom-injection]
+# DOM-write APIs that accept HTML strings
+innerHTML
+outerHTML
+insertAdjacentHTML
+document\.write
+DOMParser
+\.html\(
+# jQuery-style HTML setter
+
+[dynamic-code]
+# Code-from-string evaluators
+\beval\s*\(
+new\s+Function\s*\(
+setTimeout\s*\(\s*['"]
+setInterval\s*\(\s*['"]
+# Dynamic script element with src/text from a variable
+script\.src\s*=\s*[a-zA-Z_]
+script\.text\s*=\s*[a-zA-Z_]
+script\.textContent\s*=\s*[a-zA-Z_]

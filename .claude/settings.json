@@ -11,6 +11,18 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/sql-guard.sh",
+            "statusMessage": "Scanning for SQL injection patterns..."
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
@@ -19,6 +31,11 @@
             "type": "command",
             "command": "bash .claude/hooks/nui-check.sh",
             "statusMessage": "Checking NUI callback consistency..."
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/escrow-warn.sh",
+            "statusMessage": "Checking Tebex escrow status..."
           }
         ]
       }
