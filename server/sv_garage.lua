@@ -110,6 +110,7 @@ RegisterNetEvent('tx_garage:retrieveVehicle', function(garageName, plate)
     ]], { plate })
 
     TriggerClientEvent('tx_garage:spawnVehicle', src, garage.spawn, v.vehicle, plate, v.mods, v.fuel, v.engine, v.body)
+    TriggerEvent('qb-vehiclekeys:server:GiveKeys', src, plate)
     Bridge.Notify(src, Locale('success.vehicle_taken'), 'success')
 end)
 
@@ -151,6 +152,7 @@ RegisterNetEvent('tx_garage:storeVehicle', function(garageName, plate, props)
         plate,
     })
 
+    TriggerEvent('qb-vehiclekeys:server:RemoveKeys', src, plate)
     Bridge.Notify(src, Locale('success.vehicle_stored'), 'success')
 end)
 

@@ -75,6 +75,7 @@ RegisterNetEvent('tx_garage:requestValet', function(plate, fromCoords)
         ]], { plate })
 
         TriggerClientEvent('tx_garage:valetDeliver', src, plate, job.vehicle, job.fromCoords)
+        TriggerEvent('qb-vehiclekeys:server:GiveKeys', src, plate)
         Bridge.Notify(src, Locale('valet.arrived'), 'success')
 
         MySQL.update('UPDATE tx_garage_valet_log SET delivered_at = NOW() WHERE citizenid = ? AND plate = ? AND delivered_at IS NULL ORDER BY id DESC LIMIT 1',

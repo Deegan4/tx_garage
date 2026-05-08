@@ -109,15 +109,15 @@ Every sensitive net event has a per-player cooldown via the `isOnCooldown(src, k
 - `'marker'` — draws 3D markers each frame (**not yet implemented** — the switch case is a stub)
 - `'textui'` — proximity text UI
 
-## kollin_advanced_ui sub-resource
+## qb-vehiclekeys integration
 
-`kollin_advanced_ui/` is a bundled premium UI resource (HUD, speedometer, menus, notifications, progress bars). It is a **separate FiveM resource** with its own `fxmanifest.lua`, `config.lua`, and `locales/`. Start it independently on the server:
+`qb-vehiclekeys` runs alongside tx_garage on the server (ensured before tx_garage in `server.cfg`). When a player retrieves a vehicle from a garage or valet delivers one, tx_garage should trigger key handoff via:
 
+```lua
+TriggerEvent('qb-vehiclekeys:server:GiveKeys', src, plate)
 ```
-restart kollin_advanced_ui
-```
 
-Its `Config.Framework` defaults to `'auto'` (detects QBCore/QBox/ESX at runtime). Edit `kollin_advanced_ui/config.lua` to tune it — same escrow rules as the main resource apply.
+Keys are automatically removed when a vehicle is stored back. Do not give keys on impound.
 
 ## NUI development
 
