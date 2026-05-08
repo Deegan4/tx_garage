@@ -106,8 +106,22 @@ Every sensitive net event has a per-player cooldown via the `isOnCooldown(src, k
 
 `Config.Interaction.method` switches between three modes handled in `client/main.lua`:
 - `'target'` — registers `ox_target` box zones (default, 0.00ms idle)
-- `'marker'` — draws 3D markers each frame (requires a tick loop, not shipped yet)
+- `'marker'` — draws 3D markers each frame (**not yet implemented** — the switch case is a stub)
 - `'textui'` — proximity text UI
+
+## kollin_advanced_ui sub-resource
+
+`kollin_advanced_ui/` is a bundled premium UI resource (HUD, speedometer, menus, notifications, progress bars). It is a **separate FiveM resource** with its own `fxmanifest.lua`, `config.lua`, and `locales/`. Start it independently on the server:
+
+```
+restart kollin_advanced_ui
+```
+
+Its `Config.Framework` defaults to `'auto'` (detects QBCore/QBox/ESX at runtime). Edit `kollin_advanced_ui/config.lua` to tune it — same escrow rules as the main resource apply.
+
+## NUI development
+
+NUI-only changes (HTML/CSS/JS in `nui/`) do not require a resource restart. In-game, close and reopen the NUI panel. For faster iteration, open `nui/index.html` directly in a browser and mock `window.invokeNative` / the `message` event listener.
 
 ## Escrow policy
 
