@@ -52,6 +52,11 @@ RegisterNUICallback('garage/giveKey', function(data, cb)
     cb({ ok = true })
 end)
 
+RegisterNUICallback('garage/favorite', function(data, cb)
+    TriggerServerEvent('tx_garage:favoriteVehicle', data.plate, data.fav)
+    cb({ ok = true })
+end)
+
 RegisterNUICallback('ui/close', function(_, cb)
     setNuiFocus(false)
     cb({ ok = true })

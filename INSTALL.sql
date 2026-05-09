@@ -55,6 +55,15 @@ CREATE TABLE IF NOT EXISTS tx_garage_auction_bids (
     FOREIGN KEY (auction_id) REFERENCES tx_garage_auctions(id) ON DELETE CASCADE
 );
 
+-- Favorite/pinned vehicles
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = @dbname AND TABLE_NAME = @tablename AND COLUMN_NAME = 'tx_garage_fav') = 0,
+    'ALTER TABLE player_vehicles ADD COLUMN tx_garage_fav TINYINT(1) NOT NULL DEFAULT 0',
+    'SELECT 0'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 -- Valet log (analytics + anti-abuse)
 CREATE TABLE IF NOT EXISTS tx_garage_valet_log (
     id              INT AUTO_INCREMENT PRIMARY KEY,

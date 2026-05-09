@@ -2,9 +2,22 @@
 -- Differentiator #2: no competing FiveM garage script ships impound auctions as of May 2026.
 
 local AUCTION_TICK_SECONDS = 60
+local WATCHLIST_NOTIFY_SECONDS = 300  -- notify watchers 5 min before close
 
 local auctionCooldowns = {}
-AddEventHandler('playerDropped', function() auctionCooldowns[source] = nil end)
+-- watchlist[auctionId] = { [identifier] = src, ... }  (only online players)
+local watchlist = {}
+
+AddEventHandler('playerDropped', function()
+    local src = source
+    auctionCooldowns[src] = nil
+    -- remove this player from all watchlists
+    for _, watchers in pairs(watchlist) do
+        for id, s in pairs(watchers) do
+            if s == src then watchers[id] = nil end
+        end
+    end
+end)
 
 ---Look up a vehicle's value (used to compute starting bid).
 local function getVehicleValue(plate, model)
@@ -79,11 +92,54 @@ local function closeExpiredAuctions()
     end
 end
 
+---Fire 5-min warnings to online watchers for auctions about to close.
+local function notifyWatchers()
+    local soon = MySQL.query.await([[
+        SELECT id, vehicle_model, ends_at
+        FROM tx_garage_auctions
+        WHERE status = 'open'
+          AND ends_at > NOW()
+          AND ends_at <= DATE_ADD(NOW(), INTERVAL ? SECOND)
+    ]], { WATCHLIST_NOTIFY_SECONDS + AUCTION_TICK_SECONDS })
+
+    for _, a in ipairs(soon or {}) do
+        local watchers = watchlist[a.id]
+        if watchers then
+            for id, src in pairs(watchers) do
+                if src and GetPlayerName(src) then
+                    Bridge.Notify(src,
+                        Locale('auction.closing_soon', a.vehicle_model),
+                        'inform')
+                end
+            end
+        end
+    end
+end
+
 CreateThread(function()
     while true do
         promoteOverdueImpounds()
         closeExpiredAuctions()
+        notifyWatchers()
         Wait(AUCTION_TICK_SECONDS * 1000)
+    end
+end)
+
+RegisterNetEvent('tx_garage:watchAuction', function(auctionId, watching)
+    local src = source
+    local p = Bridge.GetPlayer(src)
+    if not p then return end
+    auctionId = tonumber(auctionId)
+    if not auctionId then return end
+
+    local id = Bridge.GetIdentifier(p)
+    if watching then
+        watchlist[auctionId] = watchlist[auctionId] or {}
+        watchlist[auctionId][id] = src
+    else
+        if watchlist[auctionId] then
+            watchlist[auctionId][id] = nil
+        end
     end
 end)
 

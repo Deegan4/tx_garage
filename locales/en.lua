@@ -34,6 +34,7 @@ Locales.en = {
     ['auction.won']            = 'You won the auction for %s at %s.',
     ['auction.retrieve_window'] = 'Retrieve within %d hours or forfeit.',
     ['auction.no_money']       = 'You cannot cover this bid.',
+    ['auction.closing_soon']   = 'Auction closing in ~5 minutes: %s',
 
     -- General
     ['error.no_permission']    = 'You do not have permission.',

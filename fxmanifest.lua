@@ -4,7 +4,7 @@ lua54 'yes'
 
 author 'tx'
 description 'tx_garage — modern multi-framework garage with valet & impound auctions'
-version '1.0.0'
+version '1.1.0'
 
 shared_scripts {
     '@ox_lib/init.lua',

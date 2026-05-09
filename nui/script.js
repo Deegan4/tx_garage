@@ -26,7 +26,7 @@ window.addEventListener("message", (e) => {
 
 function handleOpenGarage({ garage, vehicles, valet }) {
     currentGarage = garage;
-    currentVehicles = vehicles || [];
+    currentVehicles = (vehicles || []).sort((a, b) => (b.tx_garage_fav ? 1 : 0) - (a.tx_garage_fav ? 1 : 0));
     show("garage-view");
     setText("garage-label", garage.label || "Garage");
     setText("garage-type", (garage.type || "public").toUpperCase());
@@ -45,12 +45,31 @@ function renderVehicles() {
 
 function buildVehicleCard(v) {
     const card = el("div", "vehicle-card");
-    card.appendChild(txt("div", "model", v.model || "Unknown"));
+    if (v.tx_garage_fav) card.classList.add("pinned");
+
+    const titleRow = el("div", "card-title-row");
+    titleRow.appendChild(txt("div", "model", v.model || "Unknown"));
+    const favBtn = el("button", "fav-btn" + (v.tx_garage_fav ? " active" : ""));
+    favBtn.textContent = "★";
+    favBtn.title = v.tx_garage_fav ? "Unpin vehicle" : "Pin to top";
+    favBtn.addEventListener("click", () => {
+        const nowFav = !favBtn.classList.contains("active");
+        favBtn.classList.toggle("active");
+        card.classList.toggle("pinned", nowFav);
+        nuiPost("garage/favorite", { plate: v.plate, fav: nowFav });
+        v.tx_garage_fav = nowFav;
+        // re-sort: pinned cards bubble to front
+        currentVehicles.sort((a, b) => (b.tx_garage_fav ? 1 : 0) - (a.tx_garage_fav ? 1 : 0));
+        renderVehicles();
+    });
+    titleRow.appendChild(favBtn);
+    card.appendChild(titleRow);
+
     card.appendChild(txt("div", "plate", v.plate || ""));
     const stats = el("div", "stats");
-    stats.appendChild(buildStat(Math.round(v.fuel   ?? 100) + "%", "Fuel"));
-    stats.appendChild(buildStat(Math.round(v.engine ?? 100) + "%", "Engine"));
-    stats.appendChild(buildStat(Math.round(v.body   ?? 100) + "%", "Body"));
+    stats.appendChild(buildStat(Math.round(v.fuel   ?? 100), "Fuel",   "fuel"));
+    stats.appendChild(buildStat(Math.round(v.engine ?? 100), "Engine", "engine"));
+    stats.appendChild(buildStat(Math.round(v.body   ?? 100), "Body",   "body"));
     card.appendChild(stats);
     const actions = el("div", "card-actions");
     actions.appendChild(btn("Retrieve", "primary", () => {
@@ -71,12 +90,19 @@ function buildVehicleCard(v) {
     return card;
 }
 
-function buildStat(value, label) {
+// pct is 0–1000 for engine/body (FiveM scale), or 0–100 for fuel
+function buildStat(raw, label, type) {
+    // Normalise to 0–100 percentage
+    const pct = (type === "fuel") ? raw : Math.round(raw / 10);
     const s = el("div", "stat");
-    s.appendChild(txt("div", "value", value));
+    const valueEl = txt("div", "value", pct + "%");
+    // colour-code: ≥70 green, ≥40 yellow, <40 red
+    valueEl.classList.add(pct >= 70 ? "ok" : pct >= 40 ? "warn" : "crit");
+    s.appendChild(valueEl);
     s.appendChild(txt("div", "label", label));
     return s;
 }
+
 
 function handleOpenAuction({ auctions, config }) {
     currentAuctions = auctions || [];
@@ -97,7 +123,22 @@ function renderAuctions() {
 function buildAuctionCard(a) {
     const card = el("div", "auction-card");
     card.dataset.id = a.id;
-    card.appendChild(txt("div", "model", a.model || "Unknown"));
+
+    const titleRow = el("div", "card-title-row");
+    titleRow.appendChild(txt("div", "model", a.model || "Unknown"));
+    const watchBtn = el("button", "watch-btn" + (a.watching ? " active" : ""));
+    watchBtn.textContent = "👁";
+    watchBtn.title = a.watching ? "Stop watching" : "Watch — get notified 5 min before close";
+    watchBtn.addEventListener("click", () => {
+        const nowWatch = !watchBtn.classList.contains("active");
+        watchBtn.classList.toggle("active");
+        watchBtn.title = nowWatch ? "Stop watching" : "Watch — get notified 5 min before close";
+        a.watching = nowWatch;
+        nuiPost("auction/watch", { auctionId: a.id, watching: nowWatch });
+    });
+    titleRow.appendChild(watchBtn);
+    card.appendChild(titleRow);
+
     card.appendChild(txt("div", "plate", a.plate  || ""));
     const priceRow = el("div", "price-row");
     const bidEl = txt("div", "current-bid", fmt(a.currentBid ?? 0));

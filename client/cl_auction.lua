@@ -15,6 +15,11 @@ RegisterNUICallback('auction/bid', function(data, cb)
     cb({ ok = true })
 end)
 
+RegisterNUICallback('auction/watch', function(data, cb)
+    TriggerServerEvent('tx_garage:watchAuction', data.auctionId, data.watching)
+    cb({ ok = true })
+end)
+
 RegisterNetEvent('tx_garage:auctionUpdate', function(auctionId, newBid)
     SendNUIMessage({
         action = 'auctionUpdate',

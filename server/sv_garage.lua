@@ -22,14 +22,14 @@ local function listVehiclesForGarage(identifier, garage)
 
     if garage.type == 'impound' then
         local sql = isEsx
-            and [[SELECT plate,vehicle,mods,fuel,engine,body,tx_garage_state AS state,tx_garage_impounded_at AS impounded_at FROM player_vehicles WHERE owner=? AND tx_garage_state='impound']]
-            or  [[SELECT plate,vehicle,mods,fuel,engine,body,tx_garage_state AS state,tx_garage_impounded_at AS impounded_at FROM player_vehicles WHERE citizenid=? AND tx_garage_state='impound']]
+            and [[SELECT plate,vehicle,mods,fuel,engine,body,tx_garage_state AS state,tx_garage_impounded_at AS impounded_at,tx_garage_fav FROM player_vehicles WHERE owner=? AND tx_garage_state='impound']]
+            or  [[SELECT plate,vehicle,mods,fuel,engine,body,tx_garage_state AS state,tx_garage_impounded_at AS impounded_at,tx_garage_fav FROM player_vehicles WHERE citizenid=? AND tx_garage_state='impound']]
         return MySQL.query.await(sql, { identifier })
     end
 
     local sql = isEsx
-        and [[SELECT plate,vehicle,mods,fuel,engine,body,tx_garage_name AS at_garage,tx_garage_state AS state FROM player_vehicles WHERE owner=? AND tx_garage_state='stored' AND (tx_garage_name=? OR tx_garage_name IS NULL)]]
-        or  [[SELECT plate,vehicle,mods,fuel,engine,body,tx_garage_name AS at_garage,tx_garage_state AS state FROM player_vehicles WHERE citizenid=? AND tx_garage_state='stored' AND (tx_garage_name=? OR tx_garage_name IS NULL)]]
+        and [[SELECT plate,vehicle,mods,fuel,engine,body,tx_garage_name AS at_garage,tx_garage_state AS state,tx_garage_fav FROM player_vehicles WHERE owner=? AND tx_garage_state='stored' AND (tx_garage_name=? OR tx_garage_name IS NULL) ORDER BY tx_garage_fav DESC]]
+        or  [[SELECT plate,vehicle,mods,fuel,engine,body,tx_garage_name AS at_garage,tx_garage_state AS state,tx_garage_fav FROM player_vehicles WHERE citizenid=? AND tx_garage_state='stored' AND (tx_garage_name=? OR tx_garage_name IS NULL) ORDER BY tx_garage_fav DESC]]
     return MySQL.query.await(sql, { identifier, garage.name })
 end
 

@@ -34,6 +34,7 @@ Locales.es = {
     ['auction.won']            = 'Ganaste la subasta de %s por %s.',
     ['auction.retrieve_window'] = 'Retira en %d horas o pierdes el vehículo.',
     ['auction.no_money']       = 'No puedes cubrir esta oferta.',
+    ['auction.closing_soon']   = 'La subasta cierra en ~5 minutos: %s',
 
     -- General
     ['error.no_permission']    = 'No tienes permiso.',
