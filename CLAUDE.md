@@ -117,7 +117,7 @@ Every sensitive net event has a per-player cooldown via the `isOnCooldown(src, k
 
 `Config.Interaction.method` switches between three modes handled in `client/main.lua`:
 - `'target'` — registers `ox_target` box zones (default, 0.00ms idle)
-- `'marker'` — draws 3D markers each frame (**not yet implemented** — the switch case is a stub)
+- `'marker'` — draws 3D markers within `Config.Interaction.drawDistance`; press E within 2.0u to open. Marker shape/color/key configurable via `Config.Interaction.marker`
 - `'textui'` — proximity text UI
 
 ## qb-vehiclekeys integration

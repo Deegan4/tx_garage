@@ -249,9 +249,18 @@ Config.Notify = {
 -- Interaction
 -- ─────────────────────────────────────────────────────────────────────
 Config.Interaction = {
-    method         = 'target',          -- 'target' | 'textui'
-    targetResource = 'ox_target',       -- 'ox_target' | 'qb-target'
-    drawDistance   = 6.0,
+    method         = 'target',          -- 'target' | 'marker' | 'textui'
+    targetResource = 'ox_target',       -- 'ox_target' | 'qb-target' (only used when method == 'target')
+    drawDistance   = 6.0,               -- units to start drawing markers / showing textui
+    marker = {
+        type        = 1,                -- 1 = vertical cylinder. See https://docs.fivem.net/natives/?_0x28477EC23D892089
+        size        = vec3(1.5, 1.5, 0.6),
+        color       = { r = 255, g = 64, b = 180, a = 120 },   -- Vice City pink
+        bobUpAndDown= false,
+        rotate      = false,
+        promptKey   = 38,               -- E
+        promptText  = '[E] %s',         -- %s replaced with the garage/auction label
+    },
 }
 
 -- ─────────────────────────────────────────────────────────────────────

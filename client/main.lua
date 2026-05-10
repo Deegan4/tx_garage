@@ -175,6 +175,78 @@ local function startTextUiLoop()
 end
 
 -- ─────────────────────────────────────────────────────────────────────
+-- Marker mode (3D markers + E to interact)
+-- ─────────────────────────────────────────────────────────────────────
+
+local function startMarkerLoop()
+    if CachedConfig.Interaction.method ~= 'marker' then return end
+
+    local m = CachedConfig.Interaction.marker or {}
+    local mType  = m.type or 1
+    local mSize  = m.size or vec3(1.5, 1.5, 0.6)
+    local mCol   = m.color or { r = 255, g = 64, b = 180, a = 120 }
+    local mBob   = m.bobUpAndDown or false
+    local mRot   = m.rotate or false
+    local promptKey  = m.promptKey or 38
+    local promptText = m.promptText or '[E] %s'
+    local drawDist   = CachedConfig.Interaction.drawDistance or 6.0
+
+    CreateThread(function()
+        while true do
+            local sleep = 1000
+            local pos = GetEntityCoords(PlayerPedId())
+            local nearest, nearestDist, nearestType
+
+            for _, g in ipairs(CachedConfig.Garages) do
+                local gc = vector3(g.coords.x, g.coords.y, g.coords.z)
+                local d = #(pos - gc)
+                if d < drawDist then
+                    sleep = 0
+                    DrawMarker(mType, gc.x, gc.y, gc.z - 0.95,
+                        0,0,0, 0,0,0,
+                        mSize.x, mSize.y, mSize.z,
+                        mCol.r, mCol.g, mCol.b, mCol.a,
+                        mBob, false, 2, mRot, nil, nil, false)
+                    if d < 2.0 and (not nearest or d < nearestDist) then
+                        nearest, nearestDist, nearestType = g, d, 'garage'
+                    end
+                end
+            end
+
+            if CachedConfig.Auction.enabled then
+                local lot = CachedConfig.Auction.auctionLot
+                local lc = vector3(lot.x, lot.y, lot.z)
+                local d = #(pos - lc)
+                if d < drawDist then
+                    sleep = 0
+                    DrawMarker(mType, lc.x, lc.y, lc.z - 0.95,
+                        0,0,0, 0,0,0,
+                        mSize.x, mSize.y, mSize.z,
+                        mCol.r, mCol.g, mCol.b, mCol.a,
+                        mBob, false, 2, mRot, nil, nil, false)
+                    if d < 2.0 and (not nearest or d < nearestDist) then
+                        nearest, nearestDist, nearestType = { name = '__auction', label = Locale('auction.title') }, d, 'auction'
+                    end
+                end
+            end
+
+            if nearest then
+                lib.showTextUI(promptText:format(nearest.label), { position = 'right-center' })
+                if IsControlJustPressed(0, promptKey) then
+                    lib.hideTextUI()
+                    if nearestType == 'auction' then OpenAuctionUI()
+                    else OpenGarageUI(nearest.name) end
+                    Wait(500)
+                end
+            else
+                lib.hideTextUI()
+            end
+            Wait(sleep)
+        end
+    end)
+end
+
+-- ─────────────────────────────────────────────────────────────────────
 -- Cleanup on resource stop (M1 fix)
 -- ─────────────────────────────────────────────────────────────────────
 
@@ -209,5 +281,6 @@ CreateThread(function()
     createAllBlips()
     createAllTargets()
     startTextUiLoop()
+    startMarkerLoop()
     Utils.dbg('client ready ('..CachedConfig.Interaction.method..')')
 end)
