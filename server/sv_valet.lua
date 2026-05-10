@@ -1,125 +1,140 @@
--- tx_garage — Valet system server logic
--- Differentiator #1: no competing FiveM garage script ships valet support as of May 2026.
+-- tx_garage v2.0 — Valet system
+-- ────────────────────────────────────────────────────────────────────────────
+-- Premium UX:
+--   • Distance-based pricing (base + per-km)
+--   • Anti-stuck: if path validation fails, server tells client to try fallback offsets
+--   • Fuel deduction on delivery (uses ox_fuel via client setVehicleFuelLevel)
+--   • Cancel refund (configurable %)
+--   • Per-player cooldowns + active-job table prevents double-dispatch
 
 local valetCooldowns = {}
-local activeValets = {}  -- src -> { plate, requestedAt, deliverAt, cost, cancelled }
+local activeValets   = {}   -- src → { plate, vehicle, deliverAt, cost, cancelled, fromCoords }
 
 local function inCooldown(src)
     local last = valetCooldowns[src]
     return last and (os.time() - last) < Config.Valet.cooldown
 end
 
+local function nearestGarageDistance(coords)
+    local nearest = math.huge
+    for _, g in ipairs(Config.Garages) do
+        local d = Utils.dist(coords, g.coords)
+        if d < nearest then nearest = d end
+    end
+    return nearest
+end
+
+local function calculateValetCost(coords)
+    local nearest = nearestGarageDistance(coords)
+    local km = nearest / 1000.0
+    return math.floor(Config.Valet.callCost + km * Config.Valet.pricePerKm)
+end
+
 RegisterNetEvent('tx_garage:requestValet', function(garageName, fromCoords)
     local src = source
     if not Config.Valet.enabled then return end
+    if Utils.isOnCooldown(valetCooldowns, src, '_check', 1) then return end
 
-    local p = Bridge.GetPlayer(src)
-    if not p then return end
+    local p = Garage.GetPlayer(src); if not p then return end
 
-    -- Validate inputs (never trust client)
+    -- Validate inputs
     if type(garageName) ~= 'string' or #garageName > 64 then return end
-    if type(fromCoords) ~= 'table' or
-       type(fromCoords.x) ~= 'number' or
-       type(fromCoords.y) ~= 'number' or
-       type(fromCoords.z) ~= 'number' then return end
+    if type(fromCoords) ~= 'table'
+       or type(fromCoords.x) ~= 'number'
+       or type(fromCoords.y) ~= 'number'
+       or type(fromCoords.z) ~= 'number' then return end
 
-    -- Enforce Config.Valet.maxDistance: the caller must be within range of at
-    -- least one configured garage. Coords are client-supplied, so this enforces
-    -- policy rather than authority — but cheating "I'm near a garage" only
-    -- spawns the vehicle where the client said it was anyway (same coords flow
-    -- through to cl_valet.lua for spawn placement), so there's nothing to gain.
-    local maxDist = Config.Valet.maxDistance or 500.0
-    local nearestGarage = math.huge
-    for _, g in ipairs(Config.Garages) do
-        local dx = fromCoords.x - g.coords.x
-        local dy = fromCoords.y - g.coords.y
-        local dz = fromCoords.z - g.coords.z
-        local d = math.sqrt(dx * dx + dy * dy + dz * dz)
-        if d < nearestGarage then nearestGarage = d end
-    end
-    if nearestGarage > maxDist then
-        Bridge.Notify(src, Locale('valet.too_far', math.floor(maxDist)), 'error')
+    -- Distance gate
+    local dist = nearestGarageDistance(fromCoords)
+    if dist > (Config.Valet.maxDistance or 500.0) then
+        Garage.Notify(src, Locale('valet.too_far', math.floor(Config.Valet.maxDistance)), 'error')
         return
     end
 
     if inCooldown(src) then
-        Bridge.Notify(src, Locale('valet.cooldown',
-            Config.Valet.cooldown - (os.time() - valetCooldowns[src])), 'error')
+        local remaining = Config.Valet.cooldown - (os.time() - valetCooldowns[src])
+        Garage.Notify(src, Locale('valet.cooldown', remaining), 'error')
         return
     end
-
     if activeValets[src] then
-        Bridge.Notify(src, Locale('error.cooldown'), 'error')
-        return
+        Garage.Notify(src, Locale('valet.in_progress'), 'error'); return
     end
 
-    -- Server-side plate resolution: pick one of the caller's stored vehicles in this garage.
-    -- ORDER BY plate DESC is deterministic but arbitrary — there is no created_at column on
-    -- player_vehicles in the standard schema, so "most-recent" cannot be expressed without
-    -- a schema change (deferred to v1.1 to keep INSTALL.sql non-destructive).
-    -- We never accept a client-supplied plate — prevents stealing other players' vehicles.
-    local id = Bridge.GetIdentifier(p)
-    local pickSql = (Config.Framework == 'esx')
-        and [[SELECT plate, vehicle FROM player_vehicles
-              WHERE owner=? AND tx_garage_state='stored' AND (tx_garage_name=? OR tx_garage_name IS NULL)
-              ORDER BY plate DESC LIMIT 1]]
-        or  [[SELECT plate, vehicle FROM player_vehicles
-              WHERE citizenid=? AND tx_garage_state='stored' AND (tx_garage_name=? OR tx_garage_name IS NULL)
-              ORDER BY plate DESC LIMIT 1]]
-    local owns = MySQL.query.await(pickSql, { id, garageName })
-    if not owns or not owns[1] then
-        Bridge.Notify(src, Locale('error.not_owner'), 'error')
-        return
+    -- Server-side plate selection — never trust client to pick the vehicle.
+    local cid = Garage.GetCid(p)
+    local pick = MySQL.query.await([[
+        SELECT plate, vehicle FROM player_vehicles
+        WHERE (citizenid = ? OR JSON_CONTAINS(IFNULL(tx_garage_sub_owners,'[]'), JSON_QUOTE(?)))
+          AND tx_garage_state = 'stored'
+          AND (tx_garage_name = ? OR tx_garage_name IS NULL)
+        ORDER BY tx_garage_fav DESC, plate DESC
+        LIMIT 1
+    ]], { cid, cid, garageName })
+    if not pick or not pick[1] then
+        Garage.Notify(src, Locale('valet.no_vehicles'), 'error'); return
     end
-    local plate = owns[1].plate
-    -- Synthesize the same shape the rest of the handler expects
-    owns = { { vehicle = owns[1].vehicle, state = 'stored' } }
 
-    -- Charge upfront
-    if not Bridge.RemoveMoney(src, 'cash', Config.Valet.callCost) then
-        Bridge.Notify(src, Locale('valet.not_enough_money', Utils.formatMoney(Config.Valet.callCost)), 'error')
+    local plate   = pick[1].plate
+    local vehicle = pick[1].vehicle
+    local cost    = calculateValetCost(fromCoords)
+
+    if not Garage.RemoveMoney(src, 'cash', cost) then
+        Garage.Notify(src, Locale('valet.not_enough_money', Utils.formatMoney(cost)), 'error')
         return
     end
 
     local eta = math.random(Config.Valet.deliveryTime.min, Config.Valet.deliveryTime.max)
-    local deliverAt = os.time() + eta
     activeValets[src] = {
-        plate = plate,
-        vehicle = owns[1].vehicle,
+        plate       = plate,
+        vehicle     = vehicle,
         requestedAt = os.time(),
-        deliverAt = deliverAt,
-        cost = Config.Valet.callCost,
-        fromCoords = fromCoords,
-        cancelled = false,
+        deliverAt   = os.time() + eta,
+        cost        = cost,
+        fromCoords  = fromCoords,
+        cancelled   = false,
     }
 
-    -- Log
-    MySQL.insert('INSERT INTO tx_garage_valet_log (citizenid, plate, cost) VALUES (?, ?, ?)',
-        { id, plate, Config.Valet.callCost })
+    MySQL.insert(
+        'INSERT INTO tx_garage_valet_log (citizenid, plate, cost) VALUES (?, ?, ?)',
+        { cid, plate, cost }
+    )
 
-    Bridge.Notify(src, Locale('valet.requested', eta), 'inform')
+    Garage.Notify(src, Locale('valet.requested', eta, Utils.formatMoney(cost)), 'inform')
 
-    -- Schedule delivery
     SetTimeout(eta * 1000, function()
         local job = activeValets[src]
         if not job or job.cancelled then return end
 
-        -- Mark vehicle out and spawn it client-side
-        MySQL.update.await([[
-            UPDATE player_vehicles
-            SET tx_garage_state = 'out', tx_garage_name = NULL
-            WHERE plate = ?
+        -- Atomic state transition (only deliver if still 'stored')
+        local upd = MySQL.update.await([[
+            UPDATE player_vehicles SET tx_garage_state = 'out', tx_garage_name = NULL
+            WHERE plate = ? AND tx_garage_state = 'stored'
         ]], { plate })
 
-        TriggerClientEvent('tx_garage:valetDeliver', src, plate, job.vehicle, job.fromCoords)
-        TriggerEvent('qb-vehiclekeys:server:GiveKeys', src, plate)
-        Bridge.Notify(src, Locale('valet.arrived'), 'success')
+        if not upd or upd == 0 then
+            -- Vehicle moved out from under us (admin spawned, etc.) — refund full
+            Garage.AddMoney(src, 'cash', cost)
+            Garage.Notify(src, Locale('error.bad_state'), 'error')
+            activeValets[src] = nil
+            return
+        end
 
-        MySQL.update('UPDATE tx_garage_valet_log SET delivered_at = NOW() WHERE citizenid = ? AND plate = ? AND delivered_at IS NULL ORDER BY id DESC LIMIT 1',
-            { Bridge.GetIdentifier(p), plate })
+        -- Fuel deduction is applied client-side on spawn (server tells client how much to subtract)
+        TriggerClientEvent('tx_garage:valetDeliver', src,
+            plate, vehicle, job.fromCoords,
+            Config.Valet.fuelDeduction or 5.0)
+
+        Garage.Notify(src, Locale('valet.arrived'), 'success')
+
+        MySQL.update(
+            [[UPDATE tx_garage_valet_log SET delivered_at = NOW()
+              WHERE citizenid = ? AND plate = ? AND delivered_at IS NULL
+              ORDER BY id DESC LIMIT 1]],
+            { cid, plate }
+        )
 
         valetCooldowns[src] = os.time()
-        activeValets[src] = nil
+        activeValets[src]   = nil
     end)
 end)
 
@@ -129,25 +144,37 @@ RegisterNetEvent('tx_garage:cancelValet', function()
     if not job or job.cancelled then return end
 
     job.cancelled = true
-    local refund = math.floor(job.cost * Config.Valet.cancelRefund)
-    if refund > 0 then
-        Bridge.AddMoney(src, 'cash', refund)
-    end
+    local refund = math.floor(job.cost * (Config.Valet.cancelRefund or 0.5))
+    if refund > 0 then Garage.AddMoney(src, 'cash', refund) end
+    Garage.Notify(src, Locale('valet.cancelled', Utils.formatMoney(refund)), 'inform')
 
-    Bridge.Notify(src, Locale('valet.cancelled', Utils.formatMoney(refund)), 'inform')
-
-    local p = Bridge.GetPlayer(src)
+    local p = Garage.GetPlayer(src)
     if p then
-        MySQL.update('UPDATE tx_garage_valet_log SET cancelled_at = NOW() WHERE citizenid = ? AND plate = ? AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1',
-            { Bridge.GetIdentifier(p), job.plate })
+        MySQL.update(
+            [[UPDATE tx_garage_valet_log SET cancelled_at = NOW()
+              WHERE citizenid = ? AND plate = ? AND cancelled_at IS NULL
+              ORDER BY id DESC LIMIT 1]],
+            { Garage.GetCid(p), job.plate }
+        )
     end
 
+    activeValets[src] = nil
+end)
+
+-- Client tells us its anti-stuck path failed; we permit a refund + retry.
+RegisterNetEvent('tx_garage:valetPathFailed', function()
+    local src = source
+    local job = activeValets[src]
+    if not job then return end
+    job.cancelled = true
+    Garage.AddMoney(src, 'cash', job.cost)
+    Garage.Notify(src, Locale('valet.path_blocked'), 'error')
     activeValets[src] = nil
 end)
 
 AddEventHandler('playerDropped', function()
     local src = source
     if activeValets[src] then activeValets[src].cancelled = true end
-    activeValets[src] = nil
+    activeValets[src]   = nil
     valetCooldowns[src] = nil
 end)

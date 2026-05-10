@@ -1,119 +1,179 @@
--- tx_garage — Impound auction server logic
--- Differentiator #2: no competing FiveM garage script ships impound auctions as of May 2026.
+-- tx_garage v2.0 — Impound auction
+-- ────────────────────────────────────────────────────────────────────────────
+-- C1 fix (concurrent bid race) — optimistic concurrency:
+--   • UPDATE includes WHERE current_bid = expectedPreviousBid
+--   • If two bidders race, only the first UPDATE matches; second gets 0 rows
+--     and we refund the loser. No transactions, no row locks needed.
+--
+-- H3 fix (re-promote duplicate plate) — drops legacy ux_plate constraint
+-- (handled in INSTALL.sql). Auctions can now have multiple historical rows
+-- per plate; we read only the latest 'open' row.
+--
+-- H4 — payout split is configurable: original owner / society / sink.
+-- Anti-snipe: bids in the final N seconds extend the auction by M seconds.
 
-local AUCTION_TICK_SECONDS = 60
-local WATCHLIST_NOTIFY_SECONDS = 300  -- notify watchers 5 min before close
+local AUCTION_MAX_TICK_SECONDS = 300   -- never sleep longer than 5 minutes
+local AUCTION_MIN_TICK_SECONDS = 30
+local WATCHLIST_NOTIFY_SECONDS = 300   -- notify watchers ~5 min before close
 
 local auctionCooldowns = {}
--- watchlist[auctionId] = { [identifier] = src, ... }  (only online players)
+-- watchlist[auctionId] = { [citizenid] = src }
 local watchlist = {}
 
-AddEventHandler('playerDropped', function()
-    local src = source
-    auctionCooldowns[src] = nil
-    -- remove this player from all watchlists
-    for _, watchers in pairs(watchlist) do
-        for id, s in pairs(watchers) do
-            if s == src then watchers[id] = nil end
-        end
-    end
-end)
+-- ─────────────────────────────────────────────────────────────────────
+-- Helpers
+-- ─────────────────────────────────────────────────────────────────────
 
----Look up a vehicle's value (used to compute starting bid).
-local function getVehicleValue(plate, model)
-    local ok, result = pcall(function()
-        return MySQL.scalar.await('SELECT depvalue FROM player_vehicles WHERE plate = ? LIMIT 1', { plate })
-    end)
-    if ok and result and tonumber(result) then return tonumber(result) end
+local function getVehicleValue(plate)
+    local col = Config.Auction.valueColumn or 'depvalue'
+    local sql = ('SELECT %s AS v FROM player_vehicles WHERE plate = ? LIMIT 1'):format(col)
+    local ok, row = pcall(MySQL.query.await, sql, { plate })
+    if ok and row and row[1] and tonumber(row[1].v) then return tonumber(row[1].v) end
     return Config.Auction.fallbackValue
 end
 
----Promote vehicles overdue in impound to auction.
+local function distributePayout(originalOwner, amount)
+    local split = Config.Auction.payoutSplit
+    if not split then return end
+    -- Round to integers; any rounding loss goes to the sink.
+    local ownerCut   = math.floor(amount * (split.originalOwner or 0))
+    local societyCut = math.floor(amount * (split.society or 0))
+
+    if ownerCut > 0 and originalOwner then
+        Garage.AddMoneyOffline(originalOwner, 'bank', ownerCut)
+        Garage.LogSociety('auction', originalOwner, 'auction_payout', ownerCut, 'owner cut')
+    end
+    if societyCut > 0 and Config.Auction.societyAccount then
+        -- Society balance is tracked via the ledger; integration with qbx_management
+        -- can read tx_garage_society_log for net balance.
+        Garage.LogSociety(Config.Auction.societyAccount, 'system', 'auction_cut', societyCut, 'auction')
+    end
+    -- Government / sink cut is whatever's left — money out of economy.
+end
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Promotion & closing (run by tick)
+-- ─────────────────────────────────────────────────────────────────────
+
 local function promoteOverdueImpounds()
     if not Config.Auction.enabled then return end
 
     local overdue = MySQL.query.await([[
-        SELECT plate, vehicle
+        SELECT plate, vehicle, citizenid AS owner
         FROM player_vehicles
         WHERE tx_garage_state = 'impound'
           AND tx_garage_impounded_at IS NOT NULL
-          AND TIMESTAMPDIFF(DAY, tx_garage_impounded_at, NOW()) >= ?
-    ]], { Config.Auction.impoundDays })
+          AND TIMESTAMPDIFF(SECOND, tx_garage_impounded_at, NOW()) >= ?
+    ]], { (Config.Auction.impoundDays or 7) * 86400 })
 
     for _, v in ipairs(overdue or {}) do
-        -- Skip if already in auctions table
-        local existing = MySQL.scalar.await('SELECT id FROM tx_garage_auctions WHERE plate = ? LIMIT 1', { v.plate })
+        -- Skip if there's already an open auction for this plate
+        local existing = MySQL.scalar.await(
+            "SELECT id FROM tx_garage_auctions WHERE plate = ? AND status = 'open' LIMIT 1",
+            { v.plate }
+        )
         if not existing then
-            local value = getVehicleValue(v.plate, v.vehicle)
-            local startingBid = math.floor(value * Config.Auction.startingBidPercent)
+            local value = getVehicleValue(v.plate)
+            local startingBid = math.floor(value * (Config.Auction.startingBidPercent or 0.10))
             local endsAt = os.date('%Y-%m-%d %H:%M:%S', os.time() + Config.Auction.auctionLength)
 
-            MySQL.insert.await([[
-                INSERT INTO tx_garage_auctions (plate, vehicle_model, starting_bid, current_bid, ends_at)
-                VALUES (?, ?, ?, ?, ?)
-            ]], { v.plate, v.vehicle, startingBid, startingBid, endsAt })
+            local insertId = MySQL.insert.await([[
+                INSERT INTO tx_garage_auctions
+                  (plate, vehicle_model, starting_bid, current_bid, original_owner, ends_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ]], { v.plate, v.vehicle, startingBid, startingBid, v.owner, endsAt })
 
             MySQL.update.await(
-                "UPDATE player_vehicles SET tx_garage_state = 'auction' WHERE plate = ?",
+                "UPDATE player_vehicles SET tx_garage_state = 'auction' WHERE plate = ? AND tx_garage_state = 'impound'",
                 { v.plate }
             )
-            Utils.dbg('Promoted plate to auction:', v.plate)
+            Utils.dbg('Auction opened:', v.plate, '#'..insertId, 'starting', startingBid)
+
+            -- Webhook
+            TriggerEvent('tx_garage:internalAuctionStart', v.plate, v.vehicle, value, startingBid)
         end
     end
 end
 
----Close auctions whose end time has passed; transfer or forfeit.
 local function closeExpiredAuctions()
     local expired = MySQL.query.await([[
-        SELECT id, plate, vehicle_model, current_bid, leading_bidder
+        SELECT id, plate, vehicle_model, current_bid, leading_bidder, original_owner
         FROM tx_garage_auctions
         WHERE status = 'open' AND ends_at <= NOW()
     ]])
 
     for _, a in ipairs(expired or {}) do
         if a.leading_bidder then
-            -- Bid was already debited at place-time (escrow model). At close we
-            -- just transfer ownership; the house cut is implicit (bidder paid full
-            -- amount, original owner gets nothing — that IS the impound penalty).
-            local transferSql = (Config.Framework == 'esx')
-                and "UPDATE player_vehicles SET owner=?, tx_garage_state='impound', tx_garage_impounded_at=NOW() WHERE plate=?"
-                or  "UPDATE player_vehicles SET citizenid=?, tx_garage_state='impound', tx_garage_impounded_at=NOW() WHERE plate=?"
-            MySQL.update.await(transferSql, { a.leading_bidder, a.plate })
-            MySQL.update.await(
-                "UPDATE tx_garage_auctions SET status = 'closed' WHERE id = ?",
-                { a.id }
-            )
-            Utils.dbg('Auction closed:', a.plate, '→', a.leading_bidder, 'for', a.current_bid)
+            -- Bid was already debited at place-time. Transfer ownership atomically.
+            local upd = MySQL.update.await([[
+                UPDATE player_vehicles
+                SET citizenid = ?, tx_garage_state = 'impound', tx_garage_impounded_at = NOW()
+                WHERE plate = ? AND tx_garage_state = 'auction'
+            ]], { a.leading_bidder, a.plate })
+
+            if upd and upd > 0 then
+                MySQL.update.await(
+                    "UPDATE tx_garage_auctions SET status = 'closed' WHERE id = ?", { a.id }
+                )
+                distributePayout(a.original_owner, a.current_bid)
+
+                -- Notify winner if online
+                local winSrc = Garage.GetSrcByCid(a.leading_bidder)
+                if winSrc then
+                    Garage.Notify(winSrc,
+                        Locale('auction.won', a.vehicle_model, Utils.formatMoney(a.current_bid)),
+                        'success')
+                    Garage.Notify(winSrc,
+                        Locale('auction.retrieve_window', Config.Auction.retrieveWindowHours),
+                        'inform')
+                end
+
+                TriggerEvent('tx_garage:internalAuctionWon', a.plate, a.vehicle_model, a.leading_bidder, a.current_bid)
+                Utils.dbg('Auction closed:', a.plate, '→', a.leading_bidder, 'for', a.current_bid)
+            end
         else
-            -- No bids — return to impound, will re-promote later
-            MySQL.update.await("UPDATE tx_garage_auctions SET status = 'closed' WHERE id = ?", { a.id })
-            MySQL.update.await("UPDATE player_vehicles SET tx_garage_state = 'impound' WHERE plate = ?", { a.plate })
+            -- No bids — return to impound; will re-promote later if still unclaimed
+            MySQL.update.await(
+                "UPDATE tx_garage_auctions SET status = 'closed' WHERE id = ?", { a.id }
+            )
+            MySQL.update.await(
+                "UPDATE player_vehicles SET tx_garage_state = 'impound' WHERE plate = ? AND tx_garage_state = 'auction'",
+                { a.plate }
+            )
         end
     end
 end
 
----Fire 5-min warnings to online watchers for auctions about to close.
 local function notifyWatchers()
     local soon = MySQL.query.await([[
-        SELECT id, vehicle_model, ends_at
+        SELECT id, vehicle_model
         FROM tx_garage_auctions
         WHERE status = 'open'
-          AND ends_at > NOW()
-          AND ends_at <= DATE_ADD(NOW(), INTERVAL ? SECOND)
-    ]], { WATCHLIST_NOTIFY_SECONDS + AUCTION_TICK_SECONDS })
+          AND TIMESTAMPDIFF(SECOND, NOW(), ends_at) BETWEEN 0 AND ?
+    ]], { WATCHLIST_NOTIFY_SECONDS + AUCTION_MIN_TICK_SECONDS })
 
     for _, a in ipairs(soon or {}) do
         local watchers = watchlist[a.id]
         if watchers then
-            for id, src in pairs(watchers) do
+            for cid, src in pairs(watchers) do
                 if src and GetPlayerName(src) then
-                    Bridge.Notify(src,
-                        Locale('auction.closing_soon', a.vehicle_model),
-                        'inform')
+                    Garage.Notify(src, Locale('auction.closing_soon', a.vehicle_model), 'inform')
                 end
             end
         end
     end
+end
+
+-- M2 fix: dynamic tick — sleep until next ends_at or 5 minutes, whichever sooner
+local function nextTickDelay()
+    local row = MySQL.query.await([[
+        SELECT TIMESTAMPDIFF(SECOND, NOW(), MIN(ends_at)) AS s
+        FROM tx_garage_auctions WHERE status = 'open'
+    ]])
+    local until_ = (row and row[1] and row[1].s) or AUCTION_MAX_TICK_SECONDS
+    if not until_ then return AUCTION_MAX_TICK_SECONDS end
+    if until_ <= 0 then return AUCTION_MIN_TICK_SECONDS end
+    return math.min(math.max(until_, AUCTION_MIN_TICK_SECONDS), AUCTION_MAX_TICK_SECONDS)
 end
 
 CreateThread(function()
@@ -121,100 +181,158 @@ CreateThread(function()
         promoteOverdueImpounds()
         closeExpiredAuctions()
         notifyWatchers()
-        Wait(AUCTION_TICK_SECONDS * 1000)
+        Wait(nextTickDelay() * 1000)
     end
 end)
 
+-- ─────────────────────────────────────────────────────────────────────
+-- Watchlist
+-- ─────────────────────────────────────────────────────────────────────
+
 RegisterNetEvent('tx_garage:watchAuction', function(auctionId, watching)
     local src = source
-    local p = Bridge.GetPlayer(src)
-    if not p then return end
-    auctionId = tonumber(auctionId)
-    if not auctionId then return end
+    local p = Garage.GetPlayer(src); if not p then return end
+    auctionId = tonumber(auctionId); if not auctionId then return end
 
-    local id = Bridge.GetIdentifier(p)
+    local cid = Garage.GetCid(p)
     if watching then
         watchlist[auctionId] = watchlist[auctionId] or {}
-        watchlist[auctionId][id] = src
+        watchlist[auctionId][cid] = src
+        Garage.Notify(src, Locale('auction.watch_on'), 'inform')
     else
-        if watchlist[auctionId] then
-            watchlist[auctionId][id] = nil
+        if watchlist[auctionId] then watchlist[auctionId][cid] = nil end
+        Garage.Notify(src, Locale('auction.watch_off'), 'inform')
+    end
+end)
+
+AddEventHandler('playerDropped', function()
+    local src = source
+    auctionCooldowns[src] = nil
+    for _, watchers in pairs(watchlist) do
+        for cid, s in pairs(watchers) do
+            if s == src then watchers[cid] = nil end
         end
     end
 end)
 
+-- ─────────────────────────────────────────────────────────────────────
+-- List & bid
+-- ─────────────────────────────────────────────────────────────────────
+
 lib.callback.register('tx_garage:listAuctions', function(src)
-    return MySQL.query.await([[
-        SELECT id, plate, vehicle_model, starting_bid, current_bid, leading_bidder, ends_at
+    local rows = MySQL.query.await([[
+        SELECT id, plate, vehicle_model, starting_bid, current_bid, leading_bidder,
+               UNIX_TIMESTAMP(ends_at) AS ends_at_ts
         FROM tx_garage_auctions
         WHERE status = 'open'
         ORDER BY ends_at ASC
-    ]])
+    ]]) or {}
+    -- Strip leading_bidder identifier — never expose to other clients
+    -- (we replace it with a boolean: "you're the leader" if cid matches)
+    local p = Garage.GetPlayer(src)
+    local cid = p and Garage.GetCid(p) or nil
+    for _, r in ipairs(rows) do
+        r.is_leader = (cid and r.leading_bidder == cid) or false
+        r.leading_bidder = nil
+    end
+    return rows
 end)
 
 RegisterNetEvent('tx_garage:placeBid', function(auctionId, amount)
     local src = source
     if Utils.isOnCooldown(auctionCooldowns, src, 'bid', 2) then return end
 
-    local p = Bridge.GetPlayer(src)
-    if not p then return end
-
-    amount = tonumber(amount)
-    if not amount or amount <= 0 then return end
+    local p = Garage.GetPlayer(src); if not p then return end
+    auctionId = tonumber(auctionId); if not auctionId then return end
+    amount = tonumber(amount); if not amount or amount <= 0 then return end
 
     local row = MySQL.query.await([[
-        SELECT current_bid, leading_bidder, status, ends_at FROM tx_garage_auctions WHERE id = ? LIMIT 1
+        SELECT current_bid, leading_bidder, status,
+               UNIX_TIMESTAMP(ends_at) AS ends_at_ts
+        FROM tx_garage_auctions WHERE id = ? LIMIT 1
     ]], { auctionId })
-    if not row or not row[1] or row[1].status ~= 'open' then return end
+    if not row or not row[1] then return end
+    if row[1].status ~= 'open' then return end
 
-    local minNext = row[1].current_bid + Config.Auction.minBidIncrement
+    local previousBid     = tonumber(row[1].current_bid) or 0
+    local previousBidder  = row[1].leading_bidder
+    local minNext = previousBid + (Config.Auction.minBidIncrement or 100)
     if amount < minNext then
-        Bridge.Notify(src, Locale('auction.bid_too_low', Utils.formatMoney(minNext)), 'error')
+        Garage.Notify(src, Locale('auction.bid_too_low', Utils.formatMoney(minNext)), 'error')
         return
     end
 
-    local id = Bridge.GetIdentifier(p)
-    local previousBidder = row[1].leading_bidder
-    local previousBid = tonumber(row[1].current_bid) or 0
+    local cid = Garage.GetCid(p)
 
-    -- BID ESCROW: debit the new bidder NOW. If they win, money is already gone.
-    -- If they're outbid, refund happens below. If they go offline before close,
-    -- their bid still stands because we already have their money.
-    if not Bridge.RemoveMoney(src, 'bank', amount) then
-        Bridge.Notify(src, Locale('auction.no_money'), 'error')
+    -- BID ESCROW: debit the new bidder NOW. Refund happens on outbid or auction-cancel.
+    if not Garage.RemoveMoney(src, 'bank', amount) then
+        Garage.Notify(src, Locale('auction.no_money'), 'error')
         return
     end
 
-    -- Refund the previous bidder (if any), INCLUDING the same player raising their own bid.
-    -- Without this, a self-rebid pays previousBid + newBid for a newBid auction.
-    -- previousBidder is an identifier string; use offline-safe path so we work
-    -- whether they are online or not.
+    -- C1 fix: optimistic concurrency. Only update if current_bid is still what we read.
+    -- If 0 rows affected, another bid raced ahead → refund and tell client to retry.
+    local antiSnipeExtend = 0
+    local now = os.time()
+    if (row[1].ends_at_ts - now) < (Config.Auction.antiSnipeSeconds or 60) then
+        antiSnipeExtend = Config.Auction.antiSnipeExtend or 60
+    end
+
+    local upd
+    if antiSnipeExtend > 0 then
+        upd = MySQL.update.await([[
+            UPDATE tx_garage_auctions
+            SET current_bid = ?, leading_bidder = ?,
+                ends_at = DATE_ADD(ends_at, INTERVAL ? SECOND)
+            WHERE id = ? AND current_bid = ? AND status = 'open'
+        ]], { amount, cid, antiSnipeExtend, auctionId, previousBid })
+    else
+        upd = MySQL.update.await([[
+            UPDATE tx_garage_auctions
+            SET current_bid = ?, leading_bidder = ?
+            WHERE id = ? AND current_bid = ? AND status = 'open'
+        ]], { amount, cid, auctionId, previousBid })
+    end
+
+    if not upd or upd == 0 then
+        -- Race lost — refund the bidder
+        Garage.AddMoney(src, 'bank', amount)
+        Garage.Notify(src, Locale('auction.bid_stale'), 'error')
+        return
+    end
+
+    -- Refund the previous bidder (offline-safe)
     if previousBidder and previousBid > 0 then
-        Bridge.AddMoneyOffline(previousBidder, 'bank', previousBid)
-    end
-
-    MySQL.update.await([[
-        UPDATE tx_garage_auctions SET current_bid = ?, leading_bidder = ? WHERE id = ?
-    ]], { amount, id, auctionId })
-
-    MySQL.insert('INSERT INTO tx_garage_auction_bids (auction_id, bidder, bid_amount) VALUES (?, ?, ?)',
-        { auctionId, id, amount })
-
-    -- Notify previously leading bidder if online
-    if previousBidder and previousBidder ~= id then
-        local idCol = (Config.Framework == 'esx') and 'identifier' or 'citizenid'
-        for _, otherSrc in ipairs(GetPlayers()) do
-            local op = Bridge.GetPlayer(tonumber(otherSrc))
-            if op and Bridge.GetIdentifier(op) == previousBidder then
-                Bridge.Notify(tonumber(otherSrc),
-                    Locale('auction.outbid', '#' .. auctionId, Utils.formatMoney(amount)),
-                    'error')
-                break
-            end
+        Garage.AddMoneyOffline(previousBidder, 'bank', previousBid)
+        local prevSrc = Garage.GetSrcByCid(previousBidder)
+        if prevSrc and prevSrc ~= src then
+            Garage.Notify(prevSrc,
+                Locale('auction.outbid', tostring(auctionId), Utils.formatMoney(amount)),
+                'error')
+            Garage.Notify(prevSrc,
+                Locale('auction.refunded', Utils.formatMoney(previousBid)),
+                'inform')
         end
     end
 
-    Bridge.Notify(src, Locale('success.payment', Utils.formatMoney(amount)), 'success')
-    -- Broadcast only bid amount — never expose the bidder's identifier to all clients
-    TriggerClientEvent('tx_garage:auctionUpdate', -1, auctionId, amount)
+    MySQL.insert(
+        'INSERT INTO tx_garage_auction_bids (auction_id, bidder, bid_amount) VALUES (?, ?, ?)',
+        { auctionId, cid, amount }
+    )
+
+    Garage.Notify(src, Locale('success.payment', Utils.formatMoney(amount)), 'success')
+    if antiSnipeExtend > 0 then
+        Garage.Notify(src, Locale('auction.extended', antiSnipeExtend), 'inform')
+    end
+
+    -- Broadcast bid amount + new ends_at if extended (never the bidder identity)
+    local endsTs
+    if antiSnipeExtend > 0 then
+        local r = MySQL.query.await(
+            'SELECT UNIX_TIMESTAMP(ends_at) AS ts FROM tx_garage_auctions WHERE id = ? LIMIT 1',
+            { auctionId }
+        )
+        endsTs = r and r[1] and r[1].ts or nil
+    end
+    TriggerClientEvent('tx_garage:auctionUpdate', -1, auctionId, amount, endsTs)
 end)

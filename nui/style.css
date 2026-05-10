@@ -1,4 +1,7 @@
-/* tx_garage — Vice City neon aesthetic, modern and clean */
+/* tx_garage v2.0 — Vice City Sunset
+   ─────────────────────────────────────────────────────────────────────
+   Hot pink + teal cyan over deep navy/plum gradient. Art deco accents.
+   Premium aesthetic without competing with the game's HUD. */
 
 @font-face {
     font-family: 'Bebas Neue';
@@ -6,34 +9,53 @@
     font-weight: 400;
     font-display: swap;
 }
-
 @font-face {
     font-family: 'Outfit';
     src: url('assets/fonts/Outfit.woff2') format('woff2');
     font-weight: 400 700;
     font-display: swap;
 }
-
 @font-face {
     font-family: 'JetBrains Mono';
     src: url('assets/fonts/JetBrainsMono.woff2') format('woff2');
-    font-weight: 400 500;
+    font-weight: 400 600;
     font-display: swap;
 }
 
 :root {
-    --bg-0: #0a0512;
-    --bg-1: #15092a;
-    --bg-2: #1f0d3a;
-    --pink: #ff2d6b;
-    --cyan: #00f0ff;
-    --green: #00ffa3;
-    --yellow: #ffd60a;
-    --text: #f4eaff;
-    --text-dim: #a399c9;
-    --border: rgba(255, 45, 107, 0.3);
-    --shadow-pink: 0 0 24px rgba(255, 45, 107, 0.4);
-    --shadow-cyan: 0 0 18px rgba(0, 240, 255, 0.35);
+    /* Base — deep night-sky to plum-twilight */
+    --bg-night:  #0a0e2c;
+    --bg-dusk:   #1a0a2e;
+    --bg-card:   #1f0d3a;
+    --bg-hover:  #281045;
+
+    /* Accents — Vice City sunset */
+    --pink:        #ff2d6b;
+    --pink-glow:   #ff5288;
+    --pink-deep:   #b91c5b;
+    --cyan:        #00f0ff;
+    --cyan-glow:   #66f9ff;
+    --cyan-deep:   #00b8c4;
+
+    /* Sunset gradient — hot pink to teal cyan, the actual VC vibe */
+    --sunset:    linear-gradient(135deg, #ff2d6b 0%, #ff8a3d 35%, #ffd60a 65%, #00f0ff 100%);
+
+    /* Status colors */
+    --green:     #00ffa3;
+    --yellow:    #ffd60a;
+    --red:       #ff3855;
+
+    /* Text */
+    --text:      #f4eaff;
+    --text-dim:  #a399c9;
+    --text-mute: #6f6390;
+
+    /* Borders + shadows */
+    --border:       rgba(255, 45, 107, 0.3);
+    --border-soft:  rgba(255, 255, 255, 0.06);
+    --shadow-pink:  0 0 24px rgba(255, 45, 107, 0.4);
+    --shadow-cyan:  0 0 18px rgba(0, 240, 255, 0.35);
+    --shadow-deep:  0 30px 80px rgba(0, 0, 0, 0.6);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -44,24 +66,55 @@ html, body {
     font-family: 'Outfit', system-ui, sans-serif;
     color: var(--text);
     background: transparent;
+    -webkit-user-select: none;
     user-select: none;
 }
 
 #app { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
 #app.hidden { display: none; }
 
+/* ──────────────────────────── View shell ───────────────────────────── */
+
 .view {
-    width: min(1100px, 92vw);
+    position: relative;
+    width: min(1180px, 92vw);
     max-height: 86vh;
-    background: linear-gradient(160deg, var(--bg-1) 0%, var(--bg-0) 100%);
+    background: linear-gradient(160deg, var(--bg-dusk) 0%, var(--bg-night) 100%);
     border: 1px solid var(--border);
     border-radius: 18px;
-    box-shadow: var(--shadow-pink), 0 30px 80px rgba(0,0,0,0.6);
+    box-shadow: var(--shadow-pink), var(--shadow-deep);
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    animation: enter 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .view.hidden { display: none; }
+
+/* Art-deco corner accents — pink/cyan triangles in opposite corners */
+.view::before, .view::after {
+    content: '';
+    position: absolute;
+    width: 60px; height: 60px;
+    pointer-events: none;
+    opacity: 0.7;
+}
+.view::before {
+    top: 0; left: 0;
+    background: linear-gradient(135deg, var(--pink) 0%, transparent 50%);
+    border-top-left-radius: 18px;
+}
+.view::after {
+    bottom: 0; right: 0;
+    background: linear-gradient(315deg, var(--cyan) 0%, transparent 50%);
+    border-bottom-right-radius: 18px;
+}
+
+@keyframes enter {
+    from { opacity: 0; transform: translateY(12px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+/* ──────────────────────────── Header ───────────────────────────────── */
 
 .header {
     display: flex;
@@ -69,11 +122,33 @@ html, body {
     justify-content: space-between;
     padding: 22px 28px;
     border-bottom: 1px solid var(--border);
-    background: linear-gradient(90deg, rgba(255,45,107,0.08) 0%, transparent 60%);
+    background: linear-gradient(90deg, rgba(255, 45, 107, 0.08) 0%, transparent 60%);
 }
 
 .title { display: flex; align-items: center; gap: 14px; }
-.title h1 { font-family: 'Bebas Neue', sans-serif; font-size: 32px; letter-spacing: 2px; }
+.title h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 32px;
+    letter-spacing: 2px;
+    text-shadow: 0 2px 14px rgba(255, 45, 107, 0.25);
+}
+
+.header-actions { display: flex; align-items: center; gap: 12px; }
+
+.search {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 14px;
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    width: 220px;
+    outline: none;
+    transition: all 0.15s ease;
+}
+.search:focus { border-color: var(--cyan); box-shadow: var(--shadow-cyan); width: 260px; }
+.search::placeholder { color: var(--text-mute); }
 
 .badge {
     font-family: 'JetBrains Mono', monospace;
@@ -82,23 +157,26 @@ html, body {
     padding: 6px 12px;
     border-radius: 6px;
     background: var(--pink);
-    color: var(--bg-0);
+    color: var(--bg-night);
     font-weight: 600;
-    box-shadow: 0 0 12px rgba(255,45,107,0.5);
+    box-shadow: 0 0 12px rgba(255, 45, 107, 0.5);
 }
-.badge.auction { background: var(--yellow); }
+.badge.auction { background: var(--yellow); color: var(--bg-night); }
 
 .close-btn {
     width: 36px; height: 36px;
     border-radius: 10px;
-    background: rgba(255,45,107,0.1);
+    background: rgba(255, 45, 107, 0.1);
     border: 1px solid var(--border);
     color: var(--text);
     font-size: 16px;
     cursor: pointer;
     transition: all 0.15s ease;
+    display: inline-flex; align-items: center; justify-content: center;
 }
-.close-btn:hover { background: var(--pink); color: var(--bg-0); }
+.close-btn:hover { background: var(--pink); color: var(--bg-night); }
+
+/* ──────────────────────────── Action bar ───────────────────────────── */
 
 .actions {
     display: flex;
@@ -118,63 +196,137 @@ html, body {
     letter-spacing: 0.3px;
     cursor: pointer;
     transition: all 0.15s ease;
+    color: var(--text);
 }
-.btn .icon { font-size: 16px; }
+.btn .icon { font-size: 14px; line-height: 1; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .btn.primary {
-    background: linear-gradient(135deg, var(--pink), #b91c5b);
+    background: linear-gradient(135deg, var(--pink), var(--pink-deep));
     color: white;
     box-shadow: var(--shadow-pink);
 }
-.btn.primary:hover { transform: translateY(-1px); filter: brightness(1.1); }
+.btn.primary:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.1); }
+
 .btn.secondary {
     background: rgba(0, 240, 255, 0.1);
     border: 1px solid rgba(0, 240, 255, 0.4);
     color: var(--cyan);
 }
-.btn.secondary:hover { background: rgba(0, 240, 255, 0.2); box-shadow: var(--shadow-cyan); }
+.btn.secondary:hover:not(:disabled) {
+    background: rgba(0, 240, 255, 0.2);
+    box-shadow: var(--shadow-cyan);
+}
+
+.btn.ghost {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-soft);
+    color: var(--text);
+}
+.btn.ghost:hover:not(:disabled) { background: var(--bg-hover); }
+
+.btn.danger {
+    background: rgba(255, 56, 85, 0.12);
+    border: 1px solid var(--red);
+    color: var(--red);
+}
+.btn.danger:hover:not(:disabled) { background: var(--red); color: white; }
+
+/* ──────────────────────────── Vehicle / Auction grid ───────────────── */
 
 .vehicle-grid, .auction-grid {
     padding: 22px 28px 28px;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
     gap: 16px;
     overflow-y: auto;
     flex: 1;
 }
 
 .vehicle-card, .auction-card {
-    background: linear-gradient(160deg, var(--bg-2) 0%, var(--bg-1) 100%);
+    position: relative;
+    background: linear-gradient(160deg, var(--bg-card) 0%, var(--bg-dusk) 100%);
     border: 1px solid var(--border);
     border-radius: 14px;
-    padding: 18px;
+    overflow: hidden;
     transition: all 0.15s ease;
+    display: flex;
+    flex-direction: column;
 }
 .vehicle-card:hover, .auction-card:hover {
     border-color: var(--pink);
-    box-shadow: 0 0 18px rgba(255,45,107,0.25);
+    box-shadow: 0 0 18px rgba(255, 45, 107, 0.25);
     transform: translateY(-2px);
 }
 
-.vehicle-card .model {
+/* Vehicle preview "thumbnail" — pure CSS gradient per class */
+.preview {
+    height: 88px;
+    position: relative;
+    overflow: hidden;
+    border-bottom: 1px solid var(--border-soft);
+}
+.preview::after {
+    content: attr(data-glyph);
+    position: absolute;
+    right: 14px; bottom: 6px;
+    font-size: 36px;
+    opacity: 0.85;
+    color: rgba(255, 255, 255, 0.95);
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    line-height: 1;
+}
+.preview.super       { background: conic-gradient(from 200deg, #ff2d6b, #b91c5b, #1a0a2e, #ff8a3d, #ff2d6b); }
+.preview.sports      { background: linear-gradient(135deg, #ff2d6b 0%, #ff8a3d 100%); }
+.preview.suv         { background: linear-gradient(135deg, #6f6390 0%, #1a0a2e 100%); }
+.preview.motorcycle  { background: linear-gradient(135deg, #00f0ff 0%, #0a0e2c 100%); }
+.preview.truck       { background: linear-gradient(135deg, #ffd60a 0%, #b91c5b 100%); }
+.preview.sedan       { background: linear-gradient(135deg, #281045 0%, #00b8c4 100%); }
+.preview.compact     { background: linear-gradient(135deg, #1f0d3a 0%, #6f6390 100%); }
+
+.preview-status {
+    position: absolute;
+    top: 8px; left: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    background: rgba(0, 0, 0, 0.55);
+    padding: 3px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    color: var(--green);
+}
+.preview-status.impound { color: var(--yellow); }
+.preview-status.out     { color: var(--cyan); }
+
+.card-body { padding: 14px 16px 16px; }
+
+.card-title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 4px;
+    gap: 8px;
+}
+
+.vehicle-card .model, .auction-card .model {
     font-family: 'Bebas Neue', sans-serif;
     font-size: 22px;
     letter-spacing: 1.5px;
     color: var(--cyan);
-    margin-bottom: 4px;
+    line-height: 1.1;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
-.vehicle-card .plate {
+.vehicle-card .plate, .auction-card .plate {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-dim);
-    margin-bottom: 14px;
+    margin-bottom: 12px;
     letter-spacing: 1px;
-}
-
-.card-title-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 4px;
 }
 
 .fav-btn, .watch-btn {
@@ -182,15 +334,15 @@ html, body {
     border: none;
     font-size: 18px;
     cursor: pointer;
-    color: var(--text-dim);
+    color: var(--text-mute);
     padding: 2px 4px;
     border-radius: 6px;
     line-height: 1;
     transition: color 0.15s, transform 0.15s;
 }
-.fav-btn:hover   { color: var(--yellow); transform: scale(1.2); }
-.fav-btn.active  { color: var(--yellow); }
-.watch-btn:hover { color: var(--cyan);   transform: scale(1.2); }
+.fav-btn:hover    { color: var(--yellow); transform: scale(1.2); }
+.fav-btn.active   { color: var(--yellow); }
+.watch-btn:hover  { color: var(--cyan); transform: scale(1.2); }
 .watch-btn.active { color: var(--cyan); }
 
 .vehicle-card.pinned {
@@ -198,12 +350,13 @@ html, body {
     box-shadow: 0 0 14px rgba(255, 214, 10, 0.25);
 }
 
-.stats { display: flex; gap: 8px; margin-bottom: 14px; }
+/* Stats row */
+.stats { display: flex; gap: 8px; margin-bottom: 12px; }
 .stat {
     flex: 1;
     background: rgba(255, 255, 255, 0.04);
     border-radius: 8px;
-    padding: 8px;
+    padding: 8px 4px;
     text-align: center;
 }
 .stat .value {
@@ -211,53 +364,115 @@ html, body {
     font-weight: 600;
     font-size: 14px;
 }
-.stat .value.ok   { color: var(--green); }
-.stat .value.warn { color: var(--yellow); }
-.stat .value.crit { color: var(--pink); }
+.stat .value.ok    { color: var(--green); }
+.stat .value.warn  { color: var(--yellow); }
+.stat .value.crit  { color: var(--pink); }
 .stat .label {
-    font-size: 10px;
-    color: var(--text-dim);
+    font-size: 9px;
+    color: var(--text-mute);
     text-transform: uppercase;
     letter-spacing: 1px;
     margin-top: 2px;
 }
 
-.card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.mileage {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+}
+
+/* Card actions */
+.card-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
 .card-actions .btn {
     flex: 1;
     padding: 8px 10px;
     font-size: 12px;
     min-width: 0;
 }
+.card-actions .btn.icon-only {
+    flex: 0 0 auto;
+    padding: 8px 10px;
+}
 
-/* Auction-specific */
-.auction-card .price-row { display: flex; justify-content: space-between; margin-bottom: 12px; }
+/* ──────────────────────────── Auction-specific ─────────────────────── */
+
+.auction-card .price-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+    gap: 12px;
+}
 .auction-card .current-bid {
     font-family: 'Bebas Neue', sans-serif;
     font-size: 28px;
     color: var(--yellow);
     line-height: 1;
 }
+.auction-card .starting-bid {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-mute);
+    margin-top: 2px;
+    letter-spacing: 1px;
+}
 .auction-card .ends-in {
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
+    font-weight: 600;
     color: var(--pink);
-    background: rgba(255,45,107,0.1);
-    padding: 4px 8px;
+    background: rgba(255, 45, 107, 0.12);
+    padding: 4px 10px;
     border-radius: 6px;
     align-self: flex-start;
+    letter-spacing: 1px;
 }
+.auction-card .ends-in.ending-soon {
+    color: var(--bg-night);
+    background: var(--pink);
+    animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse {
+    0%, 100% { transform: scale(1);    opacity: 1; }
+    50%      { transform: scale(1.04); opacity: 0.85; }
+}
+
+.auction-card .leading-banner {
+    background: linear-gradient(90deg, var(--cyan-deep), transparent);
+    color: var(--cyan);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    padding: 4px 12px;
+    margin: 0 -16px 12px;
+}
+
+/* Bid input */
 .bid-row { display: flex; gap: 6px; margin-top: 10px; }
 .bid-row input {
     flex: 1;
     padding: 8px 12px;
-    background: rgba(0,0,0,0.3);
+    background: rgba(0, 0, 0, 0.35);
     border: 1px solid var(--border);
     border-radius: 8px;
     color: var(--text);
     font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    outline: none;
 }
-.bid-row input:focus { outline: none; border-color: var(--cyan); box-shadow: var(--shadow-cyan); }
+.bid-row input:focus {
+    border-color: var(--cyan);
+    box-shadow: var(--shadow-cyan);
+}
+
+/* ──────────────────────────── Empty state ──────────────────────────── */
 
 .empty-state {
     flex: 1;
@@ -269,9 +484,93 @@ html, body {
     padding: 40px;
 }
 .empty-state.hidden { display: none; }
-.empty-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+.empty-icon {
+    font-size: 56px;
+    margin-bottom: 16px;
+    opacity: 0.4;
+    background: var(--sunset);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
 
-/* Scrollbar */
+/* ──────────────────────────── Modals ───────────────────────────────── */
+
+.modal {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100;
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+}
+.modal.hidden { display: none; }
+
+.modal-card {
+    width: min(440px, 90vw);
+    background: linear-gradient(160deg, var(--bg-dusk) 0%, var(--bg-night) 100%);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow-pink), var(--shadow-deep);
+    padding: 24px;
+    animation: enter 0.2s ease;
+}
+.modal-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px;
+}
+.modal-header h2 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 24px; letter-spacing: 1.5px;
+}
+.modal-actions { display: flex; gap: 10px; margin-top: 18px; }
+.modal-actions .btn { flex: 1; }
+
+.muted { color: var(--text-dim); font-size: 13px; margin-bottom: 12px; }
+
+.subowner-list {
+    list-style: none;
+    max-height: 220px;
+    overflow-y: auto;
+    margin: 8px 0;
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+}
+.subowner-list li {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 13px;
+}
+.subowner-list li:last-child { border-bottom: none; }
+.subowner-list li button {
+    background: rgba(255, 56, 85, 0.1);
+    border: 1px solid var(--red);
+    color: var(--red);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    cursor: pointer;
+}
+.subowner-list li button:hover { background: var(--red); color: white; }
+
+.boss-balance {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 16px;
+    background: rgba(0, 240, 255, 0.06);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    border-radius: 10px;
+    margin: 12px 0 6px;
+}
+.big-money {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 26px;
+    color: var(--cyan);
+    letter-spacing: 1.2px;
+}
+
+/* ──────────────────────────── Scrollbar ────────────────────────────── */
+
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }

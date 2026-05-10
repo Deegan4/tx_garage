@@ -1,16 +1,26 @@
--- tx_garage — Client entry, blips, target/marker setup
+-- tx_garage v2.0 — Client entry, blips, target zones, notifications
+-- ────────────────────────────────────────────────────────────────────────────
+-- M1 fix: blip & target cleanup on resource stop.
+-- M3 fix: 'textui' interaction method now actually works (was stubbed in v1).
 
-local PlayerLoaded = false
-local CachedConfig = nil
+local CachedConfig  = nil
+local createdBlips  = {}   -- list of blip handles
+local createdZones  = {}   -- list of zone ids (ox_target / qb-target)
+local nuiOpen       = false
 
-local function notify(msg, type)
-    type = type or 'inform'
+-- ─────────────────────────────────────────────────────────────────────
+-- Notifications (use lib.notify for QBox)
+-- ─────────────────────────────────────────────────────────────────────
+
+local function notify(msg, type_)
+    type_ = type_ or 'inform'
     if Config.Notify.style == 'ox' then
-        lib.notify({ description = msg, type = type, duration = Config.Notify.duration })
-    elseif Config.Notify.style == 'qb' then
-        TriggerEvent('QBCore:Notify', msg, type, Config.Notify.duration)
-    elseif Config.Notify.style == 'esx' then
-        TriggerEvent('esx:showNotification', msg)
+        lib.notify({
+            description = msg,
+            type        = type_,
+            duration    = Config.Notify.duration,
+            position    = Config.Notify.position or 'top-right',
+        })
     else
         BeginTextCommandThefeedPost('STRING')
         AddTextComponentSubstringPlayerName(msg)
@@ -18,93 +28,186 @@ local function notify(msg, type)
     end
 end
 exports('Notify', notify)
+RegisterNetEvent('tx_garage:notify', function(msg, type_) notify(msg, type_) end)
 
-RegisterNetEvent('tx_garage:notify', function(msg, type) notify(msg, type) end)
+function GetClientConfig() return CachedConfig end
 
----Add map blips for every garage.
-local function createBlips()
-    for _, garage in ipairs(Config.Garages) do
+local function setNuiFocus(b)
+    SetNuiFocus(b, b)
+    nuiOpen = b
+end
+function IsNuiOpen() return nuiOpen end
+function SetNuiOpen(b) setNuiFocus(b) end
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Blip helpers
+-- ─────────────────────────────────────────────────────────────────────
+
+local function createBlip(coords, sprite, color, scale, label)
+    local blip = AddBlipForCoord(coords.x, coords.y, coords.z)
+    SetBlipSprite(blip, sprite)
+    SetBlipColour(blip, color)
+    SetBlipScale(blip, scale or 0.7)
+    SetBlipAsShortRange(blip, true)
+    BeginTextCommandSetBlipName('STRING')
+    AddTextComponentSubstringPlayerName(label)
+    EndTextCommandSetBlipName(blip)
+    createdBlips[#createdBlips+1] = blip
+    return blip
+end
+
+local function createAllBlips()
+    for _, garage in ipairs(CachedConfig.Garages) do
         if garage.blip then
-            local blip = AddBlipForCoord(garage.coords.x, garage.coords.y, garage.coords.z)
-            SetBlipSprite(blip, garage.blip.sprite)
-            SetBlipColour(blip, garage.blip.color)
-            SetBlipScale(blip, garage.blip.scale or 0.7)
-            SetBlipAsShortRange(blip, true)
-            BeginTextCommandSetBlipName('STRING')
-            AddTextComponentSubstringPlayerName(garage.label)
-            EndTextCommandSetBlipName(blip)
+            createBlip(garage.coords, garage.blip.sprite, garage.blip.color,
+                       garage.blip.scale, garage.label)
         end
     end
-
-    if Config.Auction.enabled and Config.Auction.auctionBlip then
-        local b = Config.Auction.auctionBlip
-        local blip = AddBlipForCoord(Config.Auction.auctionLot.x, Config.Auction.auctionLot.y, Config.Auction.auctionLot.z)
-        SetBlipSprite(blip, b.sprite)
-        SetBlipColour(blip, b.color)
-        SetBlipScale(blip, b.scale or 0.8)
-        SetBlipAsShortRange(blip, true)
-        BeginTextCommandSetBlipName('STRING')
-        AddTextComponentSubstringPlayerName(Locale('auction.title'))
-        EndTextCommandSetBlipName(blip)
+    if CachedConfig.Auction.enabled and CachedConfig.Auction.auctionBlip then
+        local b = CachedConfig.Auction.auctionBlip
+        createBlip(CachedConfig.Auction.auctionLot, b.sprite, b.color, b.scale,
+                   Locale('auction.title'))
     end
 end
 
----Add ox_target / qb-target zones for each garage.
-local function createTargets()
-    if Config.Interaction.method ~= 'target' then return end
+-- ─────────────────────────────────────────────────────────────────────
+-- Target zones (ox_target / qb-target)
+-- ─────────────────────────────────────────────────────────────────────
 
-    for _, garage in ipairs(Config.Garages) do
+local function addTarget(name, coords, opts)
+    local zone
+    if CachedConfig.Interaction.targetResource == 'ox_target' then
+        zone = exports.ox_target:addBoxZone({
+            coords   = coords,
+            size     = vec3(3.0, 3.0, 2.0),
+            rotation = 0,
+            debug    = Config.Debug,
+            options  = opts,
+        })
+    elseif CachedConfig.Interaction.targetResource == 'qb-target' then
+        zone = exports['qb-target']:AddBoxZone(name, coords, 3.0, 3.0, {
+            name = name, heading = 0, debugPoly = Config.Debug,
+            minZ = coords.z - 1.0, maxZ = coords.z + 1.0,
+        }, { options = opts, distance = 2.5 })
+    end
+    if zone then createdZones[#createdZones+1] = { name = name, handle = zone } end
+end
+
+local function createAllTargets()
+    if CachedConfig.Interaction.method ~= 'target' then return end
+
+    for _, garage in ipairs(CachedConfig.Garages) do
         local label, icon
         if garage.type == 'impound' then
             label = Locale('impound.title') .. ' — ' .. garage.label
             icon  = 'fa-solid fa-handcuffs'
+        elseif garage.type == 'job' then
+            label = garage.label
+            icon  = 'fa-solid fa-briefcase'
         else
             label = garage.label
             icon  = 'fa-solid fa-warehouse'
         end
 
-        if Config.Interaction.targetResource == 'ox_target' then
-            exports.ox_target:addBoxZone({
-                coords = garage.coords,
-                size   = vec3(3.0, 3.0, 2.0),
-                rotation = 0,
-                debug = Config.Debug,
-                options = {{
-                    name  = 'tx_garage_' .. garage.name,
-                    icon  = icon,
-                    label = label,
-                    onSelect = function()
-                        OpenGarageUI(garage.name)
-                    end,
-                }},
-            })
-        end
+        addTarget('tx_garage_'..garage.name, garage.coords, {{
+            name      = 'tx_garage_'..garage.name,
+            icon      = icon,
+            label     = label,
+            distance  = 2.5,
+            onSelect  = function() OpenGarageUI(garage.name) end,
+        }})
     end
 
-    if Config.Auction.enabled and Config.Interaction.targetResource == 'ox_target' then
-        exports.ox_target:addBoxZone({
-            coords = Config.Auction.auctionLot,
-            size   = vec3(3.0, 3.0, 2.0),
-            rotation = 0,
-            debug = Config.Debug,
-            options = {{
-                name  = 'tx_garage_auction',
-                icon  = 'fa-solid fa-gavel',
-                label = Locale('auction.title'),
-                onSelect = function() OpenAuctionUI() end,
-            }},
-        })
+    if CachedConfig.Auction.enabled then
+        addTarget('tx_garage_auction', CachedConfig.Auction.auctionLot, {{
+            name     = 'tx_garage_auction',
+            icon     = 'fa-solid fa-gavel',
+            label    = Locale('auction.title'),
+            distance = 2.5,
+            onSelect = function() OpenAuctionUI() end,
+        }})
     end
 end
 
-CreateThread(function()
-    -- Pull server-trimmed config for runtime UI rendering
-    CachedConfig = lib.callback.await('tx_garage:getConfig', false)
-    Wait(500)
-    createBlips()
-    createTargets()
-    PlayerLoaded = true
-    Utils.dbg('client ready')
+-- ─────────────────────────────────────────────────────────────────────
+-- TextUI fallback (M3 fix — actually works now)
+-- ─────────────────────────────────────────────────────────────────────
+
+local function startTextUiLoop()
+    if CachedConfig.Interaction.method ~= 'textui' then return end
+
+    CreateThread(function()
+        while true do
+            local sleep = 1000
+            local ped = PlayerPedId()
+            local pos = GetEntityCoords(ped)
+            local nearest, nearestDist, nearestType = nil, math.huge, nil
+
+            for _, g in ipairs(CachedConfig.Garages) do
+                local d = #(pos - vector3(g.coords.x, g.coords.y, g.coords.z))
+                if d < (CachedConfig.Interaction.drawDistance or 6.0) and d < nearestDist then
+                    nearest, nearestDist, nearestType = g, d, 'garage'
+                end
+            end
+            if CachedConfig.Auction.enabled then
+                local lot = CachedConfig.Auction.auctionLot
+                local d = #(pos - vector3(lot.x, lot.y, lot.z))
+                if d < (CachedConfig.Interaction.drawDistance or 6.0) and d < nearestDist then
+                    nearest, nearestDist, nearestType = { name = '__auction', label = Locale('auction.title') }, d, 'auction'
+                end
+            end
+
+            if nearest then
+                sleep = 0
+                lib.showTextUI(('[E] %s'):format(nearest.label), { position = 'right-center' })
+                if IsControlJustPressed(0, 38) then  -- E
+                    lib.hideTextUI()
+                    if nearestType == 'auction' then OpenAuctionUI()
+                    else OpenGarageUI(nearest.name) end
+                    Wait(500)
+                end
+            else
+                lib.hideTextUI()
+            end
+            Wait(sleep)
+        end
+    end)
+end
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Cleanup on resource stop (M1 fix)
+-- ─────────────────────────────────────────────────────────────────────
+
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then return end
+    for _, b in ipairs(createdBlips) do
+        if DoesBlipExist(b) then RemoveBlip(b) end
+    end
+    for _, z in ipairs(createdZones) do
+        if CachedConfig and CachedConfig.Interaction.targetResource == 'ox_target' then
+            exports.ox_target:removeZone(z.handle)
+        elseif CachedConfig and CachedConfig.Interaction.targetResource == 'qb-target' then
+            exports['qb-target']:RemoveZone(z.name)
+        end
+    end
+    if nuiOpen then setNuiFocus(false) end
+    lib.hideTextUI()
 end)
 
-function GetClientConfig() return CachedConfig end
+-- ─────────────────────────────────────────────────────────────────────
+-- Boot
+-- ─────────────────────────────────────────────────────────────────────
+
+CreateThread(function()
+    while not LocalPlayer.state.isLoggedIn do Wait(500) end
+    CachedConfig = lib.callback.await('tx_garage:getConfig', false)
+    if not CachedConfig then
+        Utils.dbg('failed to load server config')
+        return
+    end
+    Wait(250)
+    createAllBlips()
+    createAllTargets()
+    startTextUiLoop()
+    Utils.dbg('client ready ('..CachedConfig.Interaction.method..')')
+end)

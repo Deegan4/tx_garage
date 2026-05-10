@@ -8,54 +8,91 @@
 </head>
 <body>
     <div id="app" class="hidden">
-        <!-- Garage view -->
-        <div id="garage-view" class="view hidden">
-            <div class="header">
+
+        <!-- ─────────── Garage View ─────────── -->
+        <section id="garage-view" class="view hidden" aria-labelledby="garage-label">
+            <header class="header">
                 <div class="title">
                     <span class="badge" id="garage-type">PUBLIC</span>
                     <h1 id="garage-label">Garage</h1>
                 </div>
-                <button class="close-btn" data-action="close">✕</button>
-            </div>
+                <div class="header-actions">
+                    <input type="search" id="search-input" class="search" placeholder="Search vehicles…" autocomplete="off" />
+                    <button type="button" class="close-btn" data-action="close" aria-label="Close">✕</button>
+                </div>
+            </header>
 
             <div class="actions">
-                <button class="btn primary" id="btn-store">
-                    <span class="icon">⬇</span> Store Current Vehicle
+                <button type="button" class="btn primary" id="btn-store">
+                    <span class="icon">▼</span><span>Store Current Vehicle</span>
                 </button>
-                <button class="btn secondary" id="btn-valet">
-                    <span class="icon">🛎</span> Call Valet
+                <button type="button" class="btn secondary" id="btn-valet">
+                    <span class="icon">◐</span><span>Call Valet</span>
+                </button>
+                <button type="button" class="btn ghost" id="btn-boss" hidden>
+                    <span class="icon">★</span><span>Boss Menu</span>
                 </button>
             </div>
 
-            <div class="vehicle-grid" id="vehicle-grid">
-                <!-- vehicle cards injected here -->
-            </div>
+            <div class="vehicle-grid" id="vehicle-grid"></div>
 
             <div class="empty-state hidden" id="empty-state">
-                <div class="empty-icon">🚗</div>
+                <div class="empty-icon">▤</div>
                 <p>No vehicles stored here.</p>
             </div>
-        </div>
+        </section>
 
-        <!-- Auction view -->
-        <div id="auction-view" class="view hidden">
-            <div class="header">
+        <!-- ─────────── Auction View ─────────── -->
+        <section id="auction-view" class="view hidden" aria-labelledby="auction-label">
+            <header class="header">
                 <div class="title">
                     <span class="badge auction">AUCTION</span>
-                    <h1>Impound Auction House</h1>
+                    <h1 id="auction-label">Impound Auction House</h1>
                 </div>
-                <button class="close-btn" data-action="close">✕</button>
-            </div>
+                <button type="button" class="close-btn" data-action="close" aria-label="Close">✕</button>
+            </header>
 
-            <div class="auction-grid" id="auction-grid">
-                <!-- auction cards injected here -->
-            </div>
+            <div class="auction-grid" id="auction-grid"></div>
 
             <div class="empty-state hidden" id="auction-empty">
-                <div class="empty-icon">🔨</div>
+                <div class="empty-icon">▽</div>
                 <p>No active auctions right now.</p>
             </div>
+        </section>
+
+        <!-- ─────────── Sub-owner Modal ─────────── -->
+        <div id="subowner-modal" class="modal hidden" role="dialog" aria-modal="true">
+            <div class="modal-card">
+                <header class="modal-header">
+                    <h2>Sub-owners</h2>
+                    <button type="button" class="close-btn" data-action="close-modal">✕</button>
+                </header>
+                <p class="muted">Players who can retrieve, store, and call valet for this vehicle.</p>
+                <ul id="subowner-list" class="subowner-list"></ul>
+                <div class="modal-actions">
+                    <button type="button" class="btn primary" id="btn-add-subowner">+ Add Sub-owner</button>
+                </div>
+            </div>
         </div>
+
+        <!-- ─────────── Boss Menu Modal ─────────── -->
+        <div id="boss-modal" class="modal hidden" role="dialog" aria-modal="true">
+            <div class="modal-card">
+                <header class="modal-header">
+                    <h2>Boss Menu</h2>
+                    <button type="button" class="close-btn" data-action="close-modal">✕</button>
+                </header>
+                <div class="boss-balance">
+                    <span class="muted">Society balance</span>
+                    <span class="big-money" id="boss-balance-value">—</span>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn primary" id="btn-boss-deposit">Deposit</button>
+                    <button type="button" class="btn secondary" id="btn-boss-withdraw">Withdraw</button>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script src="script.js"></script>

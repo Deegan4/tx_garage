@@ -1,4 +1,13 @@
--- tx_garage — Core garage logic (store / retrieve / transfer / give key)
+-- tx_garage v2.0 — Core garage logic
+-- ────────────────────────────────────────────────────────────────────────────
+-- Security model:
+--   • Server is the single source of truth for ownership and state.
+--   • Every mutation uses WHERE clauses that include the EXPECTED state, so a
+--     concurrent path that already mutated the row results in 0 affectedRows
+--     and we reject (treats race as hostile).
+--   • Money/health values from the client are clamped against DB previous
+--     values — we never let stored health *increase* between sessions.
+--   • Per-source cooldowns on every net event.
 
 local cooldowns = {}
 
@@ -8,254 +17,352 @@ end
 
 AddEventHandler('playerDropped', function() cooldowns[source] = nil end)
 
----Find the garage config by name.
-local function findGarage(name)
-    for _, g in ipairs(Config.Garages) do
-        if g.name == name then return g end
+-- ─────────────────────────────────────────────────────────────────────
+-- Ownership helpers
+-- ─────────────────────────────────────────────────────────────────────
+
+---Returns true if the citizenid is the owner OR a sub-owner of the plate.
+local function ownsOrSubOwns(cid, plate)
+    local row = MySQL.query.await(
+        'SELECT citizenid, tx_garage_sub_owners FROM player_vehicles WHERE plate = ? LIMIT 1',
+        { plate }
+    )
+    if not row or not row[1] then return false, false end
+    local r = row[1]
+    if r.citizenid == cid then return true, true end  -- isOwner=true, isAuthorized=true
+    if Config.SubOwners.enabled and r.tx_garage_sub_owners then
+        local list = json.decode(r.tx_garage_sub_owners) or {}
+        for _, c in ipairs(list) do
+            if c == cid then return false, true end   -- isAuthorized but not full owner
+        end
     end
-    return nil
+    return false, false
 end
 
----List vehicles a player can retrieve from a given garage.
-local function listVehiclesForGarage(identifier, garage)
-    local isEsx = Config.Framework == 'esx'
+local function isFullOwner(cid, plate)
+    local owned = MySQL.scalar.await(
+        'SELECT 1 FROM player_vehicles WHERE citizenid = ? AND plate = ? LIMIT 1',
+        { cid, plate }
+    )
+    return owned == 1
+end
 
+-- ─────────────────────────────────────────────────────────────────────
+-- List vehicles for a garage
+-- ─────────────────────────────────────────────────────────────────────
+
+local function listVehicles(cid, garage)
     if garage.type == 'impound' then
-        local sql = isEsx
-            and [[SELECT plate,vehicle,mods,fuel,engine,body,tx_garage_state AS state,tx_garage_impounded_at AS impounded_at,tx_garage_fav FROM player_vehicles WHERE owner=? AND tx_garage_state='impound']]
-            or  [[SELECT plate,vehicle,mods,fuel,engine,body,tx_garage_state AS state,tx_garage_impounded_at AS impounded_at,tx_garage_fav FROM player_vehicles WHERE citizenid=? AND tx_garage_state='impound']]
-        return MySQL.query.await(sql, { identifier })
+        return MySQL.query.await([[
+            SELECT plate, vehicle, mods, fuel, engine, body,
+                   tx_garage_state AS state, tx_garage_impounded_at AS impounded_at,
+                   tx_garage_fav, tx_garage_mileage AS mileage
+            FROM player_vehicles
+            WHERE citizenid = ? AND tx_garage_state = 'impound'
+            ORDER BY tx_garage_fav DESC, plate ASC
+        ]], { cid })
     end
 
-    local sql = isEsx
-        and [[SELECT plate,vehicle,mods,fuel,engine,body,tx_garage_name AS at_garage,tx_garage_state AS state,tx_garage_fav FROM player_vehicles WHERE owner=? AND tx_garage_state='stored' AND (tx_garage_name=? OR tx_garage_name IS NULL) ORDER BY tx_garage_fav DESC]]
-        or  [[SELECT plate,vehicle,mods,fuel,engine,body,tx_garage_name AS at_garage,tx_garage_state AS state,tx_garage_fav FROM player_vehicles WHERE citizenid=? AND tx_garage_state='stored' AND (tx_garage_name=? OR tx_garage_name IS NULL) ORDER BY tx_garage_fav DESC]]
-    return MySQL.query.await(sql, { identifier, garage.name })
+    -- Owner OR sub-owner, in 'stored' state, in this garage (or NULL == any)
+    return MySQL.query.await([[
+        SELECT plate, vehicle, mods, fuel, engine, body,
+               tx_garage_name AS at_garage, tx_garage_state AS state,
+               tx_garage_fav, tx_garage_mileage AS mileage,
+               (citizenid = ?) AS is_owner
+        FROM player_vehicles
+        WHERE (citizenid = ? OR JSON_CONTAINS(IFNULL(tx_garage_sub_owners, '[]'), JSON_QUOTE(?)))
+          AND tx_garage_state = 'stored'
+          AND (tx_garage_name = ? OR tx_garage_name IS NULL)
+        ORDER BY tx_garage_fav DESC, plate ASC
+    ]], { cid, cid, cid, garage.name })
 end
 
 lib.callback.register('tx_garage:listVehicles', function(src, garageName)
-    local p = Bridge.GetPlayer(src)
-    if not p then return {} end
+    local p = Garage.GetPlayer(src); if not p then return {} end
+    local garage = Garage.FindGarage(garageName); if not garage then return {} end
 
-    local garage = findGarage(garageName)
-    if not garage then return {} end
+    -- Permission gate
+    if garage.type == 'job' and garage.jobs and not Garage.HasJob(p, garage.jobs) then return {} end
+    if garage.type == 'gang' and garage.gangs and not Garage.HasGang(p, garage.gangs) then return {} end
+    if garage.type == 'vip' and garage.aceCheck and not Garage.HasAce(src, garage.aceCheck) then return {} end
 
-    -- Permission gate for job/gang garages
-    if garage.type == 'job' and garage.jobs and not Bridge.HasJob(p, garage.jobs) then
-        return {}
-    end
-    if garage.type == 'gang' and garage.gangs then
-        local g = Bridge.GetGang(p)
-        local ok = false
-        for _, gg in ipairs(garage.gangs) do if gg == g then ok = true break end end
-        if not ok then return {} end
-    end
-
-    local id = Bridge.GetIdentifier(p)
-    return listVehiclesForGarage(id, garage)
+    return listVehicles(Garage.GetCid(p), garage) or {}
 end)
 
-RegisterNetEvent('tx_garage:retrieveVehicle', function(garageName, plate)
-    local src = source
-    if isOnCooldown(src, 'retrieve', 3) then return end
+-- ─────────────────────────────────────────────────────────────────────
+-- Retrieve (handles weekly rent for private — fixes H1)
+-- ─────────────────────────────────────────────────────────────────────
 
-    local p = Bridge.GetPlayer(src)
-    if not p then return end
+local function chargePrivateRent(src, plate)
+    local cfg = Config.GarageTypes.private
+    if cfg.cost <= 0 then return true end
 
-    local garage = findGarage(garageName)
-    if not garage then return end
+    local row = MySQL.query.await(
+        'SELECT tx_garage_rent_paid_at FROM player_vehicles WHERE plate = ? LIMIT 1', { plate }
+    )
+    if not row or not row[1] then return true end
 
-    local id = Bridge.GetIdentifier(p)
-    local isEsx = Config.Framework == 'esx'
+    local last = row[1].tx_garage_rent_paid_at
+    if last then
+        -- Skip if within rentDays
+        local elapsed = MySQL.scalar.await(
+            'SELECT TIMESTAMPDIFF(SECOND, ?, NOW())', { last }
+        ) or math.huge
+        if elapsed < (cfg.rentDays or 7) * 86400 then return true end
+    end
 
-    -- Verify ownership and state
-    local ownerSql = isEsx
-        and [[SELECT vehicle,mods,fuel,engine,body,tx_garage_state AS state,tx_garage_impounded_at AS impounded_at FROM player_vehicles WHERE owner=? AND plate=? LIMIT 1]]
-        or  [[SELECT vehicle,mods,fuel,engine,body,tx_garage_state AS state,tx_garage_impounded_at AS impounded_at FROM player_vehicles WHERE citizenid=? AND plate=? LIMIT 1]]
-    local row = MySQL.query.await(ownerSql, { id, plate })
+    if not Garage.RemoveMoney(src, 'bank', cfg.cost) then return false end
+    MySQL.update.await(
+        'UPDATE player_vehicles SET tx_garage_rent_paid_at = NOW() WHERE plate = ?', { plate }
+    )
+    Garage.Notify(src, Locale('success.payment', Utils.formatMoney(cfg.cost)), 'inform')
+    return true
+end
 
-    if not row or not row[1] then
-        Bridge.Notify(src, Locale('error.not_owner'), 'error')
-        return
+-- Returns: result table, or nil + error string
+lib.callback.register('tx_garage:retrieveVehicle', function(src, garageName, plate)
+    if isOnCooldown(src, 'retrieve', 3) then return nil, 'cooldown' end
+
+    local p = Garage.GetPlayer(src); if not p then return nil, 'no_player' end
+    local garage = Garage.FindGarage(garageName); if not garage then return nil, 'no_garage' end
+    plate = Utils.normalizePlate(plate); if not plate then return nil, 'bad_plate' end
+
+    local cid = Garage.GetCid(p)
+    local _, authorized = ownsOrSubOwns(cid, plate)
+    if not authorized then
+        Garage.Notify(src, Locale('error.not_owner'), 'error')
+        return nil, 'not_owner'
+    end
+
+    -- Verify state matches the garage type (impound vs stored)
+    local expectedState = (garage.type == 'impound') and 'impound' or 'stored'
+    local row = MySQL.query.await([[
+        SELECT vehicle, mods, fuel, engine, body, tx_garage_state AS state,
+               tx_garage_impounded_at AS impounded_at, tx_garage_mileage AS mileage,
+               tx_garage_name AS at_garage
+        FROM player_vehicles WHERE plate = ? LIMIT 1
+    ]], { plate })
+    if not row or not row[1] or row[1].state ~= expectedState then
+        Garage.Notify(src, Locale('error.bad_state'), 'error')
+        return nil, 'bad_state'
     end
     local v = row[1]
+    -- For stored vehicles, additionally enforce garage name match (NULL means any)
+    if expectedState == 'stored' and v.at_garage and v.at_garage ~= garage.name then
+        Garage.Notify(src, Locale('error.bad_state'), 'error')
+        return nil, 'wrong_garage'
+    end
 
-    -- Impound retrieval costs money
+    -- Fees
     if garage.type == 'impound' then
         local days = 1
         if v.impounded_at then
-            local ts = MySQL.scalar.await('SELECT TIMESTAMPDIFF(DAY, ?, NOW())', { v.impounded_at }) or 0
-            days = math.max(1, ts)
+            local elapsed = MySQL.scalar.await(
+                'SELECT TIMESTAMPDIFF(SECOND, ?, NOW())', { v.impounded_at }
+            ) or 86400
+            days = math.max(1, math.ceil(elapsed / 86400))
         end
         local cost = Config.Impound.baseCost + (days * Config.Impound.perDayCost)
-        if not Bridge.RemoveMoney(src, Config.Impound.paymentAccount, cost) then
-            Bridge.Notify(src, Locale('error.no_money'), 'error')
-            return
+        if not Garage.RemoveMoney(src, Config.Impound.paymentAccount, cost) then
+            Garage.Notify(src, Locale('error.no_money'), 'error')
+            return nil, 'no_money'
         end
-        Bridge.Notify(src, Locale('success.payment', Utils.formatMoney(cost)), 'success')
-    elseif garage.type == 'private' and Config.GarageTypes.private.cost > 0 then
-        -- Weekly rental — simplified: charge once per retrieve
-        Bridge.RemoveMoney(src, 'bank', Config.GarageTypes.private.cost)
+        Garage.Notify(src, Locale('success.payment', Utils.formatMoney(cost)), 'success')
+    elseif garage.type == 'private' then
+        if not chargePrivateRent(src, plate) then
+            Garage.Notify(src, Locale('error.no_money'), 'error')
+            return nil, 'no_money'
+        end
     end
 
-    -- Mark vehicle out
-    MySQL.update.await([[
+    -- Atomic state transition: stored/impound → out, ONLY if state is still what we read.
+    -- Concurrent retrieve attempts (dupe path) result in 0 affectedRows → reject second caller.
+    local upd = MySQL.update.await([[
         UPDATE player_vehicles
         SET tx_garage_state = 'out', tx_garage_name = NULL, tx_garage_impounded_at = NULL
-        WHERE plate = ?
-    ]], { plate })
-
-    TriggerClientEvent('tx_garage:spawnVehicle', src, garage.spawn, v.vehicle, plate, v.mods, v.fuel, v.engine, v.body)
-    TriggerEvent('qb-vehiclekeys:server:GiveKeys', src, plate)
-    Bridge.Notify(src, Locale('success.vehicle_taken'), 'success')
-end)
-
-RegisterNetEvent('tx_garage:storeVehicle', function(garageName, plate, props)
-    local src = source
-    if isOnCooldown(src, 'store', 2) then return end
-
-    local p = Bridge.GetPlayer(src)
-    if not p then return end
-
-    local garage = findGarage(garageName)
-    if not garage or not Config.GarageTypes[garage.type].canStore then return end
-
-    local id = Bridge.GetIdentifier(p)
-    local isEsx = Config.Framework == 'esx'
-
-    -- Validate ownership
-    local ownSql = isEsx
-        and 'SELECT 1 FROM player_vehicles WHERE owner=? AND plate=? LIMIT 1'
-        or  'SELECT 1 FROM player_vehicles WHERE citizenid=? AND plate=? LIMIT 1'
-    local owns = MySQL.scalar.await(ownSql, { id, plate })
-    if not owns then
-        Bridge.Notify(src, Locale('error.not_owner'), 'error')
-        return
+        WHERE plate = ? AND tx_garage_state = ?
+    ]], { plate, expectedState })
+    if not upd or upd == 0 then
+        Garage.Notify(src, Locale('error.bad_state'), 'error')
+        return nil, 'race_lost'
     end
 
-    -- Save vehicle state
-    MySQL.update.await([[
+    return {
+        spawn   = garage.spawn,
+        model   = v.vehicle,
+        plate   = plate,
+        mods    = v.mods,
+        fuel    = v.fuel,
+        engine  = v.engine,
+        body    = v.body,
+        mileage = v.mileage or 0,
+    }
+end)
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Store (fixes C4 — state guard, H2 — health clamp, C5 — callback flow)
+-- ─────────────────────────────────────────────────────────────────────
+
+lib.callback.register('tx_garage:storeVehicle', function(src, garageName, plate, props)
+    if isOnCooldown(src, 'store', 2) then return false, 'cooldown' end
+
+    local p = Garage.GetPlayer(src); if not p then return false, 'no_player' end
+    local garage = Garage.FindGarage(garageName); if not garage then return false, 'no_garage' end
+    if not Config.GarageTypes[garage.type].canStore then return false, 'cannot_store' end
+    plate = Utils.normalizePlate(plate); if not plate then return false, 'bad_plate' end
+    if type(props) ~= 'table' then return false, 'bad_props' end
+
+    local cid = Garage.GetCid(p)
+    local _, authorized = ownsOrSubOwns(cid, plate)
+    if not authorized then
+        Garage.Notify(src, Locale('error.not_owner'), 'error')
+        return false, 'not_owner'
+    end
+
+    -- C4 fix: only store vehicles currently in 'out' state.
+    -- Read previous health values for H2 clamp.
+    local prev = MySQL.query.await([[
+        SELECT fuel, engine, body, tx_garage_state AS state,
+               tx_garage_mileage AS mileage
+        FROM player_vehicles WHERE plate = ? LIMIT 1
+    ]], { plate })
+    if not prev or not prev[1] or prev[1].state ~= 'out' then
+        Garage.Notify(src, Locale('error.bad_state'), 'error')
+        return false, 'bad_state'
+    end
+    local prevRow = prev[1]
+
+    -- H2 fix: clamp health values — never let stored values exceed previous.
+    -- Players can only ever DAMAGE a vehicle further between sessions, never heal.
+    -- (Repair must happen via mechanic resources before storing.)
+    local maxFuel   = Utils.clamp(prevRow.fuel   or Config.Storage.maxStoreFuel,   0, Config.Storage.maxStoreFuel)
+    local maxEngine = Utils.clamp(prevRow.engine or Config.Storage.maxStoreEngine, 0, Config.Storage.maxStoreEngine)
+    local maxBody   = Utils.clamp(prevRow.body   or Config.Storage.maxStoreBody,   0, Config.Storage.maxStoreBody)
+
+    local fuel   = Utils.clamp(tonumber(props.fuel)   or maxFuel,   0, maxFuel)
+    local engine = Utils.clamp(tonumber(props.engine) or maxEngine, 0, maxEngine)
+    local body   = Utils.clamp(tonumber(props.body)   or maxBody,   0, maxBody)
+
+    -- Mileage is monotonic — never decrease.
+    local newMileage = math.max(tonumber(prevRow.mileage) or 0, tonumber(props.mileage) or 0)
+
+    -- Mods JSON: validate parseable
+    local modsJson = '{}'
+    if type(props.mods) == 'table' then
+        local ok, encoded = pcall(json.encode, props.mods)
+        if ok then modsJson = encoded end
+    elseif type(props.mods) == 'string' then
+        -- Sanity: must be valid JSON
+        local ok = pcall(json.decode, props.mods)
+        if ok then modsJson = props.mods end
+    end
+
+    local upd = MySQL.update.await([[
         UPDATE player_vehicles
         SET tx_garage_state = 'stored', tx_garage_name = ?,
-            mods = ?, fuel = ?, engine = ?, body = ?
-        WHERE plate = ?
-    ]], {
-        garage.name,
-        json.encode(props.mods or {}),
-        props.fuel or 100,
-        props.engine or 1000,
-        props.body or 1000,
-        plate,
-    })
+            mods = ?, fuel = ?, engine = ?, body = ?, tx_garage_mileage = ?
+        WHERE plate = ? AND tx_garage_state = 'out'
+    ]], { garage.name, modsJson, fuel, engine, body, newMileage, plate })
 
-    TriggerEvent('qb-vehiclekeys:server:RemoveKeys', src, plate)
-    Bridge.Notify(src, Locale('success.vehicle_stored'), 'success')
-end)
-
--- Transfer ownership to another player (server-ID only — never accept raw identifiers from client)
-RegisterNetEvent('tx_garage:transferVehicle', function(plate, targetServerId)
-    local src = source
-    if isOnCooldown(src, 'transfer', 5) then return end
-
-    local p = Bridge.GetPlayer(src)
-    if not p then return end
-
-    -- Reject non-numeric input; never trust a raw identifier string from the client
-    if not tonumber(targetServerId) then
-        Bridge.Notify(src, Locale('error.no_permission'), 'error')
-        return
+    if not upd or upd == 0 then
+        Garage.Notify(src, Locale('error.bad_state'), 'error')
+        return false, 'race_lost'
     end
 
-    local target = Bridge.GetPlayer(tonumber(targetServerId))
-    if not target then return end
-
-    local id       = Bridge.GetIdentifier(p)
-    local targetId = Bridge.GetIdentifier(target)
-    local isEsx    = Config.Framework == 'esx'
-
-    -- Verify caller owns the vehicle
-    local ownSql = isEsx
-        and 'SELECT 1 FROM player_vehicles WHERE owner=? AND plate=? LIMIT 1'
-        or  'SELECT 1 FROM player_vehicles WHERE citizenid=? AND plate=? LIMIT 1'
-    if not MySQL.scalar.await(ownSql, { id, plate }) then
-        Bridge.Notify(src, Locale('error.not_owner'), 'error')
-        return
-    end
-
-    local updSql = isEsx
-        and 'UPDATE player_vehicles SET owner=? WHERE plate=?'
-        or  'UPDATE player_vehicles SET citizenid=? WHERE plate=?'
-    MySQL.update.await(updSql, { targetId, plate })
-    Bridge.Notify(src, Locale('success.vehicle_stored'), 'success')
+    Garage.Notify(src, Locale('success.vehicle_stored'), 'success')
+    return true
 end)
 
--- Police-only impound (drops a vehicle into impound).
---
--- Security model: the caller MUST be a job-matched, grade-qualified player
--- physically near the vehicle they are impounding. The vehicleNetId proves
--- the vehicle exists in the world (it has a network entity); we read its
--- plate server-side rather than trusting the client. The cop's server-tracked
--- ped coords are compared against the vehicle's coords (Config.PoliceImpound.radius).
---
--- Calling resources (tow-truck scripts, /impound commands) should pass the
--- vehicle's NetworkGetNetworkIdFromEntity(veh) as `vehicleNetId`.
+-- ─────────────────────────────────────────────────────────────────────
+-- Police impound (C6 fix — vehicle must be unoccupied & stationary)
+-- ─────────────────────────────────────────────────────────────────────
+
 RegisterNetEvent('tx_garage:policeImpound', function(vehicleNetId)
     local src = source
     if isOnCooldown(src, 'policeImpound', 3) then return end
 
-    local p = Bridge.GetPlayer(src)
-    if not p then return end
+    local p = Garage.GetPlayer(src); if not p then return end
 
-    -- 1. Job + grade gate
-    if not Bridge.HasJob(p, Config.PoliceImpound.jobs) then
-        Bridge.Notify(src, Locale('error.no_permission'), 'error')
-        return
+    -- Job + grade gate
+    if not Garage.HasJob(p, Config.PoliceImpound.jobs) then
+        Garage.Notify(src, Locale('error.no_permission'), 'error'); return
     end
-    if Bridge.GetJobGrade(p) < (Config.PoliceImpound.minGrade or 0) then
-        Bridge.Notify(src, Locale('error.no_permission'), 'error')
-        return
+    if Garage.GetJobGrade(p) < (Config.PoliceImpound.minGrade or 0) then
+        Garage.Notify(src, Locale('error.no_permission'), 'error'); return
     end
 
-    -- 2. Resolve the vehicle entity from its network ID
     if type(vehicleNetId) ~= 'number' or vehicleNetId <= 0 then return end
     local veh = NetworkGetEntityFromNetworkId(vehicleNetId)
     if not veh or veh == 0 or not DoesEntityExist(veh) then
-        Bridge.Notify(src, Locale('error.not_owner'), 'error')
-        return
+        Garage.Notify(src, Locale('error.not_owner'), 'error'); return
     end
 
-    -- 3. Read plate from the actual entity (not from client)
-    local plate = GetVehicleNumberPlateText(veh)
+    -- Read plate from entity (server is authoritative)
+    local plate = Utils.normalizePlate(GetVehicleNumberPlateText(veh))
     if not plate then return end
-    plate = plate:gsub('%s+$', '')  -- vehicle plates are right-padded with spaces
 
-    -- 4. Validate plate is in player_vehicles (no impounding NPC/spawned vehicles)
+    -- Validate plate is in player_vehicles
     local known = MySQL.scalar.await(
         'SELECT 1 FROM player_vehicles WHERE plate = ? LIMIT 1', { plate }
     )
     if not known then
-        Bridge.Notify(src, Locale('error.not_owner'), 'error')
-        return
+        Garage.Notify(src, Locale('error.not_owner'), 'error'); return
     end
 
-    -- 5. Proximity gate: cop's ped must be within radius of the vehicle
-    local copPed = GetPlayerPed(src)
-    if not copPed or copPed == 0 then return end
-    local cx, cy, cz = table.unpack(GetEntityCoords(copPed))
-    local vx, vy, vz = table.unpack(GetEntityCoords(veh))
-    local dx, dy, dz = cx - vx, cy - vy, cz - vz
-    local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
-    if distance > (Config.PoliceImpound.radius or 5.0) then
-        Bridge.Notify(src, Locale('error.no_permission'), 'error')
-        return
+    -- Proximity gate
+    local cop = GetPlayerPed(src); if not cop or cop == 0 then return end
+    local copPos = GetEntityCoords(cop)
+    local vehPos = GetEntityCoords(veh)
+    if #(copPos - vehPos) > (Config.PoliceImpound.radius or 5.0) then
+        Garage.Notify(src, Locale('error.no_permission'), 'error'); return
     end
 
-    -- 6. All checks passed — impound
-    MySQL.update.await([[
+    -- C6 fix: vehicle must be unoccupied
+    local pedInside = GetPedInVehicleSeat(veh, -1)
+    if pedInside and pedInside ~= 0 and DoesEntityExist(pedInside) then
+        Garage.Notify(src, Locale('impound.occupied'), 'error'); return
+    end
+
+    -- C6 fix: vehicle must be stopped
+    if Config.Impound.requireStopped then
+        local speed = GetEntitySpeed(veh)
+        if speed and speed > (Config.Impound.speedThreshold or 1.0) then
+            Garage.Notify(src, Locale('impound.moving'), 'error'); return
+        end
+    end
+
+    -- C7 fix: only impound vehicles currently in 'out' state
+    local upd = MySQL.update.await([[
         UPDATE player_vehicles
         SET tx_garage_state = 'impound', tx_garage_impounded_at = NOW(), tx_garage_name = 'mrpd_impound'
-        WHERE plate = ?
+        WHERE plate = ? AND tx_garage_state = 'out'
     ]], { plate })
+    if not upd or upd == 0 then
+        Garage.Notify(src, Locale('error.bad_state'), 'error'); return
+    end
 
-    Bridge.Notify(src, Locale('success.vehicle_stored'), 'success')
+    -- Tell every client to delete the vehicle entity (the cop's client will too)
+    TriggerClientEvent('tx_garage:deleteVehicle', -1, vehicleNetId)
+    Garage.Notify(src, Locale('success.vehicle_stored'), 'success')
+
+    -- Webhook
+    TriggerEvent('tx_garage:internalImpound', plate, Garage.GetCid(p))
+end)
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Favorite/pin
+-- ─────────────────────────────────────────────────────────────────────
+
+RegisterNetEvent('tx_garage:favoriteVehicle', function(plate, fav)
+    local src = source
+    if isOnCooldown(src, 'fav', 1) then return end
+    local p = Garage.GetPlayer(src); if not p then return end
+
+    plate = Utils.normalizePlate(plate); if not plate then return end
+    if not isFullOwner(Garage.GetCid(p), plate) then return end
+
+    MySQL.update.await(
+        'UPDATE player_vehicles SET tx_garage_fav = ? WHERE plate = ?',
+        { (fav and 1 or 0), plate }
+    )
 end)

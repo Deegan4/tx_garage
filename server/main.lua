@@ -1,174 +1,175 @@
--- tx_garage — Server entry & framework bridge
+-- tx_garage v2.0 — Server entry & QBox helpers
+-- ────────────────────────────────────────────────────────────────────────────
+-- Replaces the v1 multi-framework Bridge with thin QBox-direct helpers. Other
+-- server files (sv_garage, sv_valet, sv_auction, etc.) call these wrappers
+-- rather than touching exports.qbx_core directly, so swapping framework versions
+-- in the future is one-file-deep.
 
-Bridge = {}
-local Framework = nil
+local QBX_EXPORT = exports.qbx_core
 
-CreateThread(function()
-    if Config.Framework == 'qbcore' then
-        Framework = exports['qb-core']:GetCoreObject()
-    elseif Config.Framework == 'qbox' then
-        Framework = exports.qbx_core
-    elseif Config.Framework == 'esx' then
-        Framework = exports['es_extended']:getSharedObject()
-    end
-    Utils.dbg('Server bridge loaded for', Config.Framework)
-end)
+Garage = {}     -- shared module table; used by every other sv_*.lua file
 
----@param src number
+---@param src number  server source id (player index)
 ---@return table|nil
-function Bridge.GetPlayer(src)
-    if not src or src <= 0 or not Framework then return nil end
-    if Config.Framework == 'qbcore' then
-        return Framework.Functions.GetPlayer(src)
-    elseif Config.Framework == 'qbox' then
-        return exports.qbx_core:GetPlayer(src)
-    elseif Config.Framework == 'esx' then
-        return Framework.GetPlayerFromId(src)
-    end
+function Garage.GetPlayer(src)
+    if not src or src <= 0 then return nil end
+    return QBX_EXPORT:GetPlayer(src)
 end
 
 ---@param player table
----@return string identifier (citizenid or esx identifier)
-function Bridge.GetIdentifier(player)
+---@return string|nil  citizenid
+function Garage.GetCid(player)
     if not player then return nil end
-    if Config.Framework == 'qbcore' or Config.Framework == 'qbox' then
-        return player.PlayerData and player.PlayerData.citizenid
-    elseif Config.Framework == 'esx' then
-        return player.identifier
-    end
+    return player.PlayerData and player.PlayerData.citizenid
 end
 
 ---@param player table
----@return string job_name
-function Bridge.GetJob(player)
-    if not player then return nil end
-    if Config.Framework == 'qbcore' or Config.Framework == 'qbox' then
-        return player.PlayerData and player.PlayerData.job and player.PlayerData.job.name
-    elseif Config.Framework == 'esx' then
-        return player.job and player.job.name
-    end
+---@return string|nil
+function Garage.GetJob(player)
+    return player and player.PlayerData and player.PlayerData.job and player.PlayerData.job.name
 end
 
 ---@param player table
 ---@return number  job grade level (0 if unknown)
-function Bridge.GetJobGrade(player)
+function Garage.GetJobGrade(player)
     if not player then return 0 end
-    if Config.Framework == 'qbcore' or Config.Framework == 'qbox' then
-        local g = player.PlayerData and player.PlayerData.job and player.PlayerData.job.grade
-        return tonumber(g and g.level) or 0
-    elseif Config.Framework == 'esx' then
-        return tonumber(player.job and player.job.grade) or 0
-    end
-    return 0
+    local g = player.PlayerData and player.PlayerData.job and player.PlayerData.job.grade
+    return tonumber(g and g.level) or 0
 end
 
 ---@param player table
----@return string|nil gang_name (qb only)
-function Bridge.GetGang(player)
-    if Config.Framework == 'qbcore' or Config.Framework == 'qbox' then
-        return player.PlayerData and player.PlayerData.gang and player.PlayerData.gang.name
+---@return boolean
+function Garage.IsBoss(player)
+    if not player then return false end
+    local g = player.PlayerData and player.PlayerData.job and player.PlayerData.job.grade
+    return g and (g.isboss == true or g.is_boss == true) or false
+end
+
+---@param player table
+---@return string|nil
+function Garage.GetGang(player)
+    return player and player.PlayerData and player.PlayerData.gang and player.PlayerData.gang.name
+end
+
+---@param player table
+---@param jobs table  list of job names
+---@return boolean
+function Garage.HasJob(player, jobs)
+    local job = Garage.GetJob(player)
+    if not job then return false end
+    for _, j in ipairs(jobs) do if j == job then return true end end
+    return false
+end
+
+---@param player table
+---@param gangs table
+---@return boolean
+function Garage.HasGang(player, gangs)
+    local gang = Garage.GetGang(player)
+    if not gang then return false end
+    for _, g in ipairs(gangs) do if g == gang then return true end end
+    return false
+end
+
+---@param src number
+---@param account 'cash'|'bank'
+---@param amount number
+---@return boolean ok
+function Garage.RemoveMoney(src, account, amount)
+    local p = Garage.GetPlayer(src); if not p then return false end
+    return p.Functions.RemoveMoney(account, amount, Config.ResourceName)
+end
+
+---@param src number
+---@param account 'cash'|'bank'
+---@param amount number
+function Garage.AddMoney(src, account, amount)
+    local p = Garage.GetPlayer(src); if not p then return false end
+    p.Functions.AddMoney(account, amount, Config.ResourceName)
+    return true
+end
+
+---Online-aware money mutation. If the citizenid is currently online, route
+---through qbx_core's player API (so events fire and auto-save uses the new
+---value). Otherwise mutate the players row directly via SQL.
+---Used by auction outbid refunds, auction-close payouts, and transfer settlement.
+function Garage.RemoveMoneyOffline(citizenid, account, amount)
+    if not citizenid or not amount or amount <= 0 then return false end
+    local onlineSrc = Garage.GetSrcByCid(citizenid)
+    if onlineSrc then
+        return Garage.RemoveMoney(onlineSrc, account, amount)
+    end
+    local row = MySQL.query.await('SELECT money FROM players WHERE citizenid = ? LIMIT 1', { citizenid })
+    if not row or not row[1] then return false end
+    local money = json.decode(row[1].money) or {}
+    if (money[account] or 0) < amount then return false end
+    money[account] = money[account] - amount
+    MySQL.update.await('UPDATE players SET money = ? WHERE citizenid = ?', { json.encode(money), citizenid })
+    return true
+end
+
+function Garage.AddMoneyOffline(citizenid, account, amount)
+    if not citizenid or not amount or amount <= 0 then return false end
+    local onlineSrc = Garage.GetSrcByCid(citizenid)
+    if onlineSrc then
+        return Garage.AddMoney(onlineSrc, account, amount)
+    end
+    local row = MySQL.query.await('SELECT money FROM players WHERE citizenid = ? LIMIT 1', { citizenid })
+    if not row or not row[1] then return false end
+    local money = json.decode(row[1].money) or {}
+    money[account] = (money[account] or 0) + amount
+    MySQL.update.await('UPDATE players SET money = ? WHERE citizenid = ?', { json.encode(money), citizenid })
+    return true
+end
+
+---ACE permission check. Cheaper than IsPlayerAceAllowed when called at command time
+---because it only consults the in-memory ACL.
+function Garage.HasAce(src, ace)
+    return ace and IsPlayerAceAllowed(src, ace) or false
+end
+
+---Notify a player.
+function Garage.Notify(src, msg, type_)
+    TriggerClientEvent('tx_garage:notify', src, msg, type_ or 'inform')
+end
+
+---Find a player's source by citizenid (online only). Used to push outbid/transfer notifs.
+function Garage.GetSrcByCid(cid)
+    if not cid then return nil end
+    for _, src in ipairs(GetPlayers()) do
+        local p = Garage.GetPlayer(tonumber(src))
+        if p and Garage.GetCid(p) == cid then return tonumber(src) end
     end
     return nil
 end
 
----@param src number
----@param account string 'cash' | 'bank'
----@param amount number
----@return boolean ok
-function Bridge.RemoveMoney(src, account, amount)
-    local p = Bridge.GetPlayer(src)
-    if not p then return false end
-    if Config.Framework == 'qbcore' or Config.Framework == 'qbox' then
-        return p.Functions.RemoveMoney(account, amount, 'tx_garage')
-    elseif Config.Framework == 'esx' then
-        if account == 'bank' then
-            local ok = p.getAccount('bank').money >= amount
-            if ok then p.removeAccountMoney('bank', amount) end
-            return ok
-        else
-            local ok = p.getMoney() >= amount
-            if ok then p.removeMoney(amount) end
-            return ok
-        end
-    end
-    return false
+---Distance between two server sources (their peds).
+function Garage.SrcDistance(srcA, srcB)
+    local pedA = GetPlayerPed(srcA)
+    local pedB = GetPlayerPed(srcB)
+    if not pedA or not pedB or pedA == 0 or pedB == 0 then return math.huge end
+    local a = GetEntityCoords(pedA)
+    local b = GetEntityCoords(pedB)
+    return #(a - b)
 end
 
----@param src number
----@param account string
----@param amount number
-function Bridge.AddMoney(src, account, amount)
-    local p = Bridge.GetPlayer(src)
-    if not p then return false end
-    if Config.Framework == 'qbcore' or Config.Framework == 'qbox' then
-        p.Functions.AddMoney(account, amount, 'tx_garage')
-        return true
-    elseif Config.Framework == 'esx' then
-        if account == 'bank' then p.addAccountMoney('bank', amount)
-        else p.addMoney(amount) end
-        return true
+---Resolve a configured garage by name.
+function Garage.FindGarage(name)
+    for _, g in ipairs(Config.Garages) do
+        if g.name == name then return g end
     end
-    return false
+    return nil
 end
 
----Get money offline by identifier (used when bidder/seller is offline at auction close).
----@param identifier string
----@param account string
----@param amount number
----@return boolean
-function Bridge.RemoveMoneyOffline(identifier, account, amount)
-    if Config.Framework == 'qbcore' or Config.Framework == 'qbox' then
-        local result = MySQL.query.await('SELECT money FROM players WHERE citizenid = ? LIMIT 1', { identifier })
-        if not result or not result[1] then return false end
-        local money = json.decode(result[1].money)
-        if (money[account] or 0) < amount then return false end
-        money[account] = money[account] - amount
-        MySQL.update.await('UPDATE players SET money = ? WHERE citizenid = ?', { json.encode(money), identifier })
-        return true
-    elseif Config.Framework == 'esx' then
-        local selectSql = (account == 'bank')
-            and 'SELECT bank AS m FROM users WHERE identifier = ? LIMIT 1'
-            or  'SELECT money AS m FROM users WHERE identifier = ? LIMIT 1'
-        local result = MySQL.query.await(selectSql, { identifier })
-        if not result or not result[1] or result[1].m < amount then return false end
-        local updateSql = (account == 'bank')
-            and 'UPDATE users SET bank = bank - ? WHERE identifier = ?'
-            or  'UPDATE users SET money = money - ? WHERE identifier = ?'
-        MySQL.update.await(updateSql, { amount, identifier })
-        return true
-    end
-    return false
+---Server-side log helper for ledger writes (used by auction & boss menu).
+function Garage.LogSociety(society, citizenid, action, amount, note)
+    MySQL.insert(
+        'INSERT INTO tx_garage_society_log (society, citizenid, action, amount, note) VALUES (?, ?, ?, ?, ?)',
+        { society, citizenid or 'system', action, amount, note }
+    )
 end
 
-function Bridge.AddMoneyOffline(identifier, account, amount)
-    if Config.Framework == 'qbcore' or Config.Framework == 'qbox' then
-        local result = MySQL.query.await('SELECT money FROM players WHERE citizenid = ? LIMIT 1', { identifier })
-        if not result or not result[1] then return false end
-        local money = json.decode(result[1].money)
-        money[account] = (money[account] or 0) + amount
-        MySQL.update.await('UPDATE players SET money = ? WHERE citizenid = ?', { json.encode(money), identifier })
-        return true
-    elseif Config.Framework == 'esx' then
-        local updateSql = (account == 'bank')
-            and 'UPDATE users SET bank = bank + ? WHERE identifier = ?'
-            or  'UPDATE users SET money = money + ? WHERE identifier = ?'
-        MySQL.update.await(updateSql, { amount, identifier })
-        return true
-    end
-    return false
-end
-
----Notify a player using their framework's notification system.
-function Bridge.Notify(src, msg, type)
-    TriggerClientEvent('tx_garage:notify', src, msg, type or 'inform')
-end
-
----Returns true if player.job.name is in jobs list.
-function Bridge.HasJob(player, jobs)
-    local jobName = Bridge.GetJob(player)
-    if not jobName then return false end
-    for _, j in ipairs(jobs) do
-        if j == jobName then return true end
-    end
-    return false
-end
+CreateThread(function()
+    Wait(500)
+    Utils.dbg('tx_garage v2 — server bridge loaded (QBox-native)')
+end)
