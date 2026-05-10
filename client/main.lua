@@ -56,12 +56,16 @@ local function createBlip(coords, sprite, color, scale, label)
     return blip
 end
 
+local function createGarageBlip(garage)
+    if garage.blip then
+        createBlip(garage.coords, garage.blip.sprite, garage.blip.color,
+                   garage.blip.scale, garage.label)
+    end
+end
+
 local function createAllBlips()
     for _, garage in ipairs(CachedConfig.Garages) do
-        if garage.blip then
-            createBlip(garage.coords, garage.blip.sprite, garage.blip.color,
-                       garage.blip.scale, garage.label)
-        end
+        createGarageBlip(garage)
     end
     if CachedConfig.Auction.enabled and CachedConfig.Auction.auctionBlip then
         local b = CachedConfig.Auction.auctionBlip
@@ -93,29 +97,35 @@ local function addTarget(name, coords, opts)
     if zone then createdZones[#createdZones+1] = { name = name, handle = zone } end
 end
 
+local function createGarageTarget(garage)
+    if CachedConfig.Interaction.method ~= 'target' then return end
+
+    local label, icon
+    if garage.type == 'impound' then
+        label = Locale('impound.title') .. ' — ' .. garage.label
+        icon  = 'fa-solid fa-handcuffs'
+    elseif garage.type == 'job' then
+        label = garage.label
+        icon  = 'fa-solid fa-briefcase'
+    else
+        label = garage.label
+        icon  = 'fa-solid fa-warehouse'
+    end
+
+    addTarget('tx_garage_'..garage.name, garage.coords, {{
+        name      = 'tx_garage_'..garage.name,
+        icon      = icon,
+        label     = label,
+        distance  = 2.5,
+        onSelect  = function() OpenGarageUI(garage.name) end,
+    }})
+end
+
 local function createAllTargets()
     if CachedConfig.Interaction.method ~= 'target' then return end
 
     for _, garage in ipairs(CachedConfig.Garages) do
-        local label, icon
-        if garage.type == 'impound' then
-            label = Locale('impound.title') .. ' — ' .. garage.label
-            icon  = 'fa-solid fa-handcuffs'
-        elseif garage.type == 'job' then
-            label = garage.label
-            icon  = 'fa-solid fa-briefcase'
-        else
-            label = garage.label
-            icon  = 'fa-solid fa-warehouse'
-        end
-
-        addTarget('tx_garage_'..garage.name, garage.coords, {{
-            name      = 'tx_garage_'..garage.name,
-            icon      = icon,
-            label     = label,
-            distance  = 2.5,
-            onSelect  = function() OpenGarageUI(garage.name) end,
-        }})
+        createGarageTarget(garage)
     end
 
     if CachedConfig.Auction.enabled then
@@ -245,6 +255,61 @@ local function startMarkerLoop()
         end
     end)
 end
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Dev: /tx_addgarage — print a Config.Garages entry for the current spot
+-- ─────────────────────────────────────────────────────────────────────
+
+RegisterCommand('tx_addgarage', function(_, args)
+    if not CachedConfig or not CachedConfig.Debug then
+        notify('tx_addgarage is dev-only — set Config.Debug = true', 'error') return
+    end
+
+    local name  = args[1] or ('garage_' .. tostring(math.random(1000, 9999)))
+    local label = table.concat(args, ' ', 2)
+    if label == '' then label = 'New Garage' end
+
+    -- Reject duplicate name (collides with target zone id)
+    for _, g in ipairs(CachedConfig.Garages) do
+        if g.name == name then notify('Garage name already exists: '..name, 'error') return end
+    end
+
+    local pos     = GetEntityCoords(PlayerPedId())
+    local heading = GetEntityHeading(PlayerPedId())
+    local newGarage = {
+        name    = name,
+        type    = 'public',
+        label   = label,
+        coords  = vec3(pos.x, pos.y, pos.z),
+        heading = heading,
+        blip    = { sprite = 357, color = 3, scale = 0.8 },
+        allowedClasses = nil,
+        storageLimit   = 20,
+    }
+
+    -- Live-add: marker mode picks this up automatically next tick
+    CachedConfig.Garages[#CachedConfig.Garages + 1] = newGarage
+    createGarageBlip(newGarage)
+    createGarageTarget(newGarage)
+
+    local snippet = string.format([[
+{
+    name    = '%s',
+    type    = 'public',
+    label   = '%s',
+    coords  = vec3(%.2f, %.2f, %.2f),
+    heading = %.2f,
+    blip    = { sprite = 357, color = 3, scale = 0.8 },
+    allowedClasses = nil,
+    storageLimit   = 20,
+},]], name, label, pos.x, pos.y, pos.z, heading)
+
+    print('^5[tx_garage]^7 garage live-added — paste into Config.Garages to persist:')
+    print(snippet)
+
+    SendNUIMessage({ action = 'copyToClipboard', text = snippet })
+    notify(('Garage "%s" added live — snippet copied'):format(label), 'success')
+end, false)
 
 -- ─────────────────────────────────────────────────────────────────────
 -- Cleanup on resource stop (M1 fix)

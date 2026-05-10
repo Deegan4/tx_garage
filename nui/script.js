@@ -83,6 +83,11 @@ window.addEventListener('message', (e) => {
         case 'auctionUpdate': handleAuctionUpdate(d); break;
         case 'auctionTick':   handleAuctionTick(d);   break;
         case 'closeUI':       closeUI();              break;
+        case 'copyToClipboard':
+            if (navigator.clipboard && d.text) {
+                navigator.clipboard.writeText(d.text).catch(() => {});
+            }
+            break;
     }
 });
 

@@ -32,6 +32,7 @@ lib.callback.register('tx_garage:getConfig', function(src)
         PlateChange    = Config.PlateChange,
         SubOwners      = Config.SubOwners,
         Transfer       = Config.Transfer,
+        Debug          = Config.Debug,
     }
 end)
 
